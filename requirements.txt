@@ -1,0 +1,2 @@
+negmas[plots]==0.15.1.post1
+pandas
