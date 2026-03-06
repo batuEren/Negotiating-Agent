@@ -32,11 +32,21 @@ buyer_utility = LUFun(
 )
 # create and add buyer and seller negotiators
 session.add(
-    TimeBasedAgent(name="buyer", reservation_ratio=0.4, beta=1.0),
+    TimeBasedAgent(
+        name="buyer",
+        reservation_ratio=0.4,
+        concession_curve="reverse_log",
+        reverse_log_k=12.0,
+    ),
     ufun=buyer_utility,
 )
 session.add(
-    TimeBasedAgent(name="seller", reservation_ratio=0.4, beta=1.0),
+    TimeBasedAgent(
+        name="seller",
+        reservation_ratio=0.4,
+        concession_curve="reverse_log",
+        reverse_log_k=12.0,
+    ),
     ufun=seller_utility,
 )
 #session.add(TimeBasedConcedingNegotiator(name="seller"), ufun=seller_utility)

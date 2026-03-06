@@ -21,11 +21,21 @@ reservation_ratio : float  (default 0.4)
     0.0 = accept anything, 1.0 = never concede below the best outcome.
 
 beta : float  (default 1.0)
-    Controls the concession curve shape:
-        beta < 1  ->  Boulware  (concedes slowly, stays firm until late)
+    Polynomial concession parameter (used only when concession_curve="poly"):
+        beta > 1  ->  Boulware  (concedes slowly, stays firm until late)
         beta = 1  ->  Linear    (steady concession over time)
-        beta > 1  ->  Conceder  (concedes quickly early on)
+        beta < 1  ->  Conceder  (concedes quickly early on)
+
+concession_curve : str  (default "poly")
+    One of:
+        "poly"        -> polynomial curve using beta
+        "reverse_log" -> hard-headed early, faster concession late
+
+reverse_log_k : float  (default 9.0)
+    Shape parameter for "reverse_log". Larger values concede later.
 """
+
+import math
 
 from negmas import Outcome, ResponseType
 from negmas.sao import SAONegotiator, SAOState
@@ -39,11 +49,15 @@ class TimeBasedAgent(SAONegotiator):
         *args,
         reservation_ratio: float = 0.4,
         beta: float = 1.0,
+        concession_curve: str = "poly",
+        reverse_log_k: float = 9.0,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.reservation_ratio = reservation_ratio
         self.beta = beta
+        self.concession_curve = concession_curve
+        self.reverse_log_k = reverse_log_k
 
     # ------------------------------------------------------------------
     # Helpers
@@ -87,11 +101,20 @@ class TimeBasedAgent(SAONegotiator):
 
     def _target_utility(self, t: float) -> float:
         """
-        Polynomial concession curve:
-            target = u_max - (u_max - u_min) * t^beta
+        Time-based concession target utility.
         """
         u_min, u_max = self._utility_range()
-        return u_max - (u_max - u_min) * (t**self.beta)
+        t = max(0.0, min(1.0, float(t)))
+
+        if self.concession_curve == "reverse_log":
+            # 0 at t=0 and 1 at t=1, with slow early growth.
+            k = max(float(self.reverse_log_k), 1e-9)
+            progress = 1.0 - math.log1p(k * (1.0 - t)) / math.log1p(k)
+        else:
+            # Polynomial fallback
+            progress = t**self.beta
+
+        return u_max - (u_max - u_min) * progress
 
     def _best_offer_above(self, threshold: float) -> Outcome | None:
         """
