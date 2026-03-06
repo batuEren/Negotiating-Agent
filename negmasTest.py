@@ -3,11 +3,12 @@
 from negmas import (
     make_issue,
     SAOMechanism,
-    NaiveTitForTatNegotiator,
     TimeBasedConcedingNegotiator,
 )
 from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import LinearFun, IdentityFun, AffineFun
+from titTat import TitForTatAgent
+import matplotlib.pyplot as plt
 
 # create negotiation agenda (issues)
 issues = [
@@ -31,7 +32,9 @@ buyer_utility = LUFun(
     outcome_space=session.outcome_space,
 )
 # create and add buyer and seller negotiators
-session.add(TimeBasedConcedingNegotiator(name="buyer"), preferences=buyer_utility)
+session.add(TitForTatAgent(name="buyer"), preferences=buyer_utility)
 session.add(TimeBasedConcedingNegotiator(name="seller"), ufun=seller_utility)
 # run the negotiation and show the results
-print(session.run())
+session.run()
+session.plot(show_reserved=False)
+plt.show()
