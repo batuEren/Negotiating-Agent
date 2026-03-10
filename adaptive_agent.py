@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from random import choice, sample
+import math
+from itertools import permutations
+from random import choice, sample, shuffle
 
 from negmas import SAONegotiator, ResponseType, PreferencesChangeType
 from negmas import PresortingInverseUtilityFunction
@@ -14,12 +15,13 @@ from negmas.preferences.value_fun import LinearFun, IdentityFun, AffineFun
 class AdaptiveNegotiator(SAONegotiator):
     """
     Adaptive SAOP negotiator:
-    - Frequency Analysis opponent model  (slides 71-72)
+    - Bayesian learning opponent model   (Bayes' rule, Eq. 4-5)
     - Adaptive target with backstop      (slides 40, 45)
     - AC_asp + AC_low acceptance          (slide 64)
     """
 
     E = 3.0  # Boulware exponent for backstop curve
+    BETA = 10.0  # Rationality parameter for Bayesian likelihood
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -30,11 +32,14 @@ class AdaptiveNegotiator(SAONegotiator):
         self._best_outcome = None
         self._reservation = 0.0
 
-        # Frequency analysis state
-        self._freq = {}  # {issue: {value: count}}
-        self._total_offers = 0  # k — total opponent offers
-
+        # Bayesian opponent model state
+        self._issues = []
         self._issue_names = []
+        self._w_hyps = []  # weight hypotheses (tuples on simplex)
+        self._w_post = []  # weight posteriors
+        self._v_hyps = {}  # {issue_name: list of {value: utility}}
+        self._v_post = {}  # {issue_name: list of posteriors}
+
         self._opp_utils = []  # opponent offer utils (for us)
 
         # AC_low: track min utility we have proposed
@@ -42,7 +47,6 @@ class AdaptiveNegotiator(SAONegotiator):
 
         self._util_cache = {}
         self._pool = []
-
 
     def on_preferences_changed(self, changes):
         super().on_preferences_changed(changes)
@@ -65,16 +69,17 @@ class AdaptiveNegotiator(SAONegotiator):
         self._reservation = rv if rv is not None else self._min_util
 
         try:
-            self._issue_names = [i.name for i in self.nmi.issues]
+            self._issues = list(self.nmi.issues)
+            self._issue_names = [i.name for i in self._issues]
         except Exception:
+            self._issues = []
             self._issue_names = []
 
         self._util_cache = {}
-        self._freq = {}
-        self._total_offers = 0
         self._opp_utils = []
         self._min_proposed_util = float("inf")
 
+        self._init_bayesian_model()
         self._build_pool()
 
     def _build_pool(self):
@@ -114,48 +119,163 @@ class AdaptiveNegotiator(SAONegotiator):
         return self._util_cache[offer]
 
     # ------------------------------------------------------------------
-    # Frequency Analysis  (slides 71-72)
+    # Bayesian opponent model  (Bayes' rule, Eq. 4-5)
     #
-    #   v_j(option)  = f(option) / k          — value evaluation
-    #   w_j          = max{f(o)|o in I_j} / k — issue weight
-    #   opp_util(o)  = sum( w_j * v_j(o_j) )
+    # Hypotheses:
+    #   - Weight hypotheses  H_w on discretised simplex
+    #   - Value hypotheses   H_v per issue (permutations of utilities)
+    #
+    # Update  (each opponent offer = evidence E):
+    #   P(H|E) = P(E|H) · P(H) / P(E)
+    #   where P(E|H) ∝ exp(β · U_H(offer))
+    #
+    # Estimation:
+    #   opp_util(o) = Σ E[w_i] · E[v_i(o_i)]
     # ------------------------------------------------------------------
-    def _record_offer(self, offer):
-        """Update frequency counts with a new opponent offer."""
+    @staticmethod
+    def _simplex_grid(n, step=0.1):
+        """Generate weight vectors on the discretised simplex."""
+        levels = int(round(1.0 / step))
+        result = []
+
+        def _recurse(remaining, dim, current):
+            if dim == n - 1:
+                current.append(remaining * step)
+                result.append(tuple(current))
+                current.pop()
+                return
+            for k in range(remaining + 1):
+                current.append(k * step)
+                _recurse(remaining - k, dim + 1, current)
+                current.pop()
+
+        _recurse(levels, 0, [])
+        return result
+
+    @staticmethod
+    def _make_value_hyps(values, max_hyps=100):
+        """Generate value-function hypotheses for one issue.
+
+        Each hypothesis maps every value to a utility in [0, 1].
+        Hypotheses are permutations of evenly-spaced utilities.
+        """
+        m = len(values)
+        if m <= 1:
+            return [{v: 1.0 for v in values}]
+
+        utils = [i / (m - 1) for i in range(m)]
+
+        if math.factorial(m) <= max_hyps:
+            return [{values[i]: p[i] for i in range(m)} for p in permutations(utils)]
+
+        # Too many permutations — sample a diverse subset
+        seen = set()
+        hyps = []
+        asc = tuple(utils)
+        desc = tuple(reversed(utils))
+        for canonical in (asc, desc):
+            seen.add(canonical)
+            hyps.append({values[i]: canonical[i] for i in range(m)})
+        while len(hyps) < max_hyps:
+            perm = list(utils)
+            shuffle(perm)
+            key = tuple(perm)
+            if key not in seen:
+                seen.add(key)
+                hyps.append({values[i]: perm[i] for i in range(m)})
+        return hyps
+
+    def _init_bayesian_model(self):
+        """Initialise Bayesian hypotheses and uniform priors."""
+        n = len(self._issues)
+        if n == 0:
+            self._w_hyps, self._w_post = [(1.0,)], [1.0]
+            self._v_hyps, self._v_post = {}, {}
+            return
+
+        self._w_hyps = self._simplex_grid(n, step=0.1)
+        self._w_post = [1.0 / len(self._w_hyps)] * len(self._w_hyps)
+
+        self._v_hyps = {}
+        self._v_post = {}
+        for issue in self._issues:
+            vals = list(issue.all)
+            hyps = self._make_value_hyps(vals, max_hyps=100)
+            self._v_hyps[issue.name] = hyps
+            self._v_post[issue.name] = [1.0 / len(hyps)] * len(hyps)
+
+    def _bayesian_update(self, offer):
+        """Update all posteriors given one opponent offer (evidence E).
+
+        Uses Bayes' rule (Eq. 5):
+            P(H_i | E) = P(E | H_i) · P(H_i) / Σ_j P(E | H_j) · P(H_j)
+        with likelihood  P(E | H) ∝ exp(β · U_H(offer)).
+        """
         if offer is None:
             return
         offer = tuple(offer)
-        self._total_offers += 1
 
-        for i, val in enumerate(offer):
-            name = self._issue_names[i] if i < len(self._issue_names) else f"i{i}"
-            if name not in self._freq:
-                self._freq[name] = defaultdict(int)
-            self._freq[name][val] += 1
+        # --- value posteriors (per issue, independent) ----------------
+        for i, issue in enumerate(self._issues):
+            if i >= len(offer):
+                break
+            name = issue.name
+            val = offer[i]
+            if name not in self._v_hyps:
+                continue
+            posteriors = self._v_post[name]
+            hyps = self._v_hyps[name]
+            new_post = [
+                posteriors[h] * math.exp(self.BETA * hyp.get(val, 0.0))
+                for h, hyp in enumerate(hyps)
+            ]
+            total = sum(new_post)
+            if total > 0:
+                self._v_post[name] = [p / total for p in new_post]
 
-    def _value_eval(self, issue, value):
-        """v_j(option) = f(option) / k"""
-        if issue not in self._freq or self._total_offers == 0:
+        # --- weight posteriors ----------------------------------------
+        if self._w_hyps:
+            new_w = []
+            for h, w_hyp in enumerate(self._w_hyps):
+                u = sum(
+                    w_hyp[i] * self._expected_value(self._issues[i].name, offer[i])
+                    for i in range(min(len(w_hyp), len(offer), len(self._issues)))
+                )
+                new_w.append(self._w_post[h] * math.exp(self.BETA * u))
+            total = sum(new_w)
+            if total > 0:
+                self._w_post = [p / total for p in new_w]
+
+    def _expected_value(self, issue_name, val):
+        """E[v_j(val)] weighted by value-hypothesis posteriors."""
+        if issue_name not in self._v_hyps:
             return 0.0
-        return self._freq[issue][value] / self._total_offers
+        return sum(
+            p * h.get(val, 0.0)
+            for p, h in zip(self._v_post[issue_name], self._v_hyps[issue_name])
+        )
 
-    def _issue_weight(self, issue):
-        """w_j = max{ f(o) | o in I_j } / k"""
-        if issue not in self._freq or self._total_offers == 0:
-            return 0.0
-        return max(self._freq[issue].values()) / self._total_offers
+    def _expected_weights(self):
+        """E[w] weighted by weight-hypothesis posteriors."""
+        n = len(self._issues)
+        weights = [0.0] * n
+        for h, w_hyp in enumerate(self._w_hyps):
+            p = self._w_post[h]
+            for i in range(min(n, len(w_hyp))):
+                weights[i] += p * w_hyp[i]
+        return weights
 
     def _opp_util(self, offer):
-        """Estimated opponent utility = sum( w_j * v_j(o_j) )"""
-        if offer is None or not self._issue_names or self._total_offers == 0:
+        """Estimated opponent utility = Σ E[w_i] · E[v_i(o_i)]."""
+        if offer is None or not self._issues:
             return 0.0
         offer = tuple(offer)
+        weights = self._expected_weights()
         total = 0.0
-        for i, val in enumerate(offer):
-            if i >= len(self._issue_names):
+        for i, issue in enumerate(self._issues):
+            if i >= len(offer) or i >= len(weights):
                 break
-            name = self._issue_names[i]
-            total += self._issue_weight(name) * self._value_eval(name, val)
+            total += weights[i] * self._expected_value(issue.name, offer[i])
         return total
 
     # ------------------------------------------------------------------
@@ -211,7 +331,7 @@ class AdaptiveNegotiator(SAONegotiator):
             return ResponseType.REJECT_OFFER
 
         offer = tuple(offer)
-        self._record_offer(offer)
+        self._bayesian_update(offer)
 
         offer_u = self._util(offer)
         self._opp_utils.append(offer_u)
