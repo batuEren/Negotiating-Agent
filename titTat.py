@@ -37,15 +37,30 @@ class TitForTatAgent(SAONegotiator):
         *args,
         reservation_ratio: float = 0.4,
         alpha: float = 1.0,
+        opening_utility: float | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.reservation_ratio = reservation_ratio
         self.alpha = alpha
+        self.opening_utility = opening_utility
         
         # State tracking
         self._opponent_history = []
         self._my_current_target = None
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def on_negotiation_start(self, state: SAOState) -> None:
+        super().on_negotiation_start(state)
+        self._opponent_history = []
+        _, u_max = self._utility_range()
+        if self.opening_utility is not None:
+            self._my_current_target = self.opening_utility
+        else:
+            self._my_current_target = u_max
 
     # ------------------------------------------------------------------
     # Helpers
@@ -104,10 +119,9 @@ class TitForTatAgent(SAONegotiator):
         offered_u = float(ufun(offer))
         self._opponent_history.append(offered_u)
 
-        # Initialize our target if this is the first interaction
+        # Fallback if on_negotiation_start was skipped for some reason
         if self._my_current_target is None:
-            _, u_max = self._utility_range()
-            self._my_current_target = u_max
+             self.on_negotiation_start(state)
 
         # Accept if the offer meets our current target
         if offered_u >= self._my_current_target:
@@ -126,7 +140,10 @@ class TitForTatAgent(SAONegotiator):
         u_min, u_max = self._utility_range()
 
         if self._my_current_target is None:
-            self._my_current_target = u_max
+            self.on_negotiation_start(state)
+
+        # Always concede a little bit to keep the negotiation moving
+        self._my_current_target -= (u_max - u_min) / (self.nmi.n_steps * 2)
 
         # Calculate opponent's concession based on the utility of their offers to us
         if len(self._opponent_history) >= 2:
