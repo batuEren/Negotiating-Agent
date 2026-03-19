@@ -232,7 +232,15 @@ class AdaptiveNegotiator(SAONegotiator):
             return
         offer = tuple(offer)
 
+        # Snapshot value priors before any update so that weight likelihoods
+        # are computed against the same prior as the value likelihoods.
+        # Bayes' rule requires both to condition on the same prior evidence;
+        # updating values first and then using the updated posteriors for
+        # weights would double-count the evidence.
+        v_post_prior = {k: list(v) for k, v in self._v_post.items()}
+
         # --- value posteriors (per issue, independent) ----------------
+        new_v_post = {}
         for i, issue in enumerate(self._issues):
             if i >= len(offer):
                 break
@@ -240,7 +248,7 @@ class AdaptiveNegotiator(SAONegotiator):
             val = offer[i]
             if name not in self._v_hyps:
                 continue
-            posteriors = self._v_post[name]
+            posteriors = v_post_prior[name]
             hyps = self._v_hyps[name]
             new_post = [
                 posteriors[h] * math.exp(self.BETA * hyp.get(val, 0.0))
@@ -248,20 +256,33 @@ class AdaptiveNegotiator(SAONegotiator):
             ]
             total = sum(new_post)
             if total > 0:
-                self._v_post[name] = [p / total for p in new_post]
+                new_v_post[name] = [p / total for p in new_post]
 
-        # --- weight posteriors ----------------------------------------
+        # --- weight posteriors (use prior v_post, not the updated one) ---
+        new_w_post = None
         if self._w_hyps:
             new_w = []
             for h, w_hyp in enumerate(self._w_hyps):
-                u = sum(
-                    w_hyp[i] * self._expected_value(self._issues[i].name, offer[i])
-                    for i in range(min(len(w_hyp), len(offer), len(self._issues)))
-                )
+                u = 0.0
+                for i in range(min(len(w_hyp), len(offer), len(self._issues))):
+                    name = self._issues[i].name
+                    if name not in v_post_prior:
+                        continue
+                    # E[v_j(val)] under the PRIOR value posteriors
+                    ev = sum(
+                        p * hyp.get(offer[i], 0.0)
+                        for p, hyp in zip(v_post_prior[name], self._v_hyps[name])
+                    )
+                    u += w_hyp[i] * ev
                 new_w.append(self._w_post[h] * math.exp(self.BETA * u))
             total = sum(new_w)
             if total > 0:
-                self._w_post = [p / total for p in new_w]
+                new_w_post = [p / total for p in new_w]
+
+        # Commit both updates together
+        self._v_post.update(new_v_post)
+        if new_w_post is not None:
+            self._w_post = new_w_post
 
     def _expected_value(self, issue_name, val):
         """E[v_j(val)] weighted by value-hypothesis posteriors."""

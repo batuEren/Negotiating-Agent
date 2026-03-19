@@ -80,7 +80,7 @@ def main():
             LinearTBNegotiator,
         ],
         scenarios=get_scenarios(n=2),
-        n_repetitions=10,
+        n_repetitions=1,
         path=path,
         njobs=-1,  # Serialaize
     )
