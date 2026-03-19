@@ -10,8 +10,13 @@ from microNegotiator import MicroNegotiator
 from adaptive_agent import AdaptiveNegotiator
 
 
+# -----------------------------------------------------------------------------
+# Scenario setup
+# -----------------------------------------------------------------------------
+
+
 def create_negotiation_scenario(n_steps=20):
-    """Create a standard negotiation scenario"""
+    """Create a standard 3-issue negotiation scenario."""
     issues = [
         make_issue(name="price", values=10),
         make_issue(name="quantity", values=(1, 11)),
@@ -43,14 +48,206 @@ def create_negotiation_scenario(n_steps=20):
     return session, seller_utility, buyer_utility
 
 
+def create_single_issue_scenario(n_steps=20):
+    issues = [make_issue(name="price", values=13)]  # 0..12
+    session = SAOMechanism(issues=issues, n_steps=n_steps)
+
+    seller_min_price = 6
+    buyer_max_price = 8
+
+    seller_reserved_utility = seller_min_price / 12.0
+    buyer_reserved_utility = (12.0 - buyer_max_price) / 12.0
+
+    seller_utility = LUFun(
+        values={"price": IdentityFun()},
+        outcome_space=session.outcome_space,
+        reserved_value=seller_reserved_utility,
+    ).scale_max(1.0)
+
+    buyer_utility = LUFun(
+        values={"price": AffineFun(-1, bias=12.0)},
+        outcome_space=session.outcome_space,
+        reserved_value=buyer_reserved_utility,
+    ).scale_max(1.0)
+
+    return session, seller_utility, buyer_utility
+
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+
+
+def _combo_label(row):
+    return f"{row['buyer_type']} vs {row['seller_type']}"
+
+
+def _agreed_results(results_df):
+    return results_df[results_df["agreement"].notna()].copy()
+
+
+def _safe_offer_tuple(offer):
+    if offer is None:
+        return None
+    try:
+        return tuple(offer)
+    except TypeError:
+        return offer
+
+
+def _offer_to_text(offer):
+    offer = _safe_offer_tuple(offer)
+    if offer is None:
+        return "None"
+    try:
+        if len(offer) == 1:
+            return f"price={offer[0]}"
+        if len(offer) >= 3:
+            return f"p={offer[0]}, q={offer[1]}, d={offer[2]}"
+    except Exception:
+        pass
+    return str(offer)
+
+
+def _get_all_outcomes(session):
+    """Best-effort extraction of all discrete outcomes from NegMAS."""
+    if hasattr(session, "outcomes") and session.outcomes is not None:
+        try:
+            return [_safe_offer_tuple(o) for o in session.outcomes]
+        except Exception:
+            pass
+
+    os = getattr(session, "outcome_space", None)
+    if os is not None:
+        for name in ("enumerate_or_sample", "enumerate", "all"):
+            if hasattr(os, name):
+                attr = getattr(os, name)
+                try:
+                    values = attr() if callable(attr) else attr
+                    return [_safe_offer_tuple(o) for o in values]
+                except Exception:
+                    continue
+
+    raise RuntimeError("Could not enumerate outcomes from the session")
+
+
+def _pareto_mask(points):
+    """Return boolean mask of Pareto-efficient rows for max-max utilities."""
+    vals = points[["buyer_utility", "seller_utility"]].to_numpy(dtype=float)
+    n = len(vals)
+    mask = np.ones(n, dtype=bool)
+    for i in range(n):
+        if not mask[i]:
+            continue
+        x = vals[i]
+        dominates_i = (
+            (vals[:, 0] >= x[0])
+            & (vals[:, 1] >= x[1])
+            & ((vals[:, 0] > x[0]) | (vals[:, 1] > x[1]))
+        )
+        if dominates_i.any():
+            mask[i] = False
+    return mask
+
+
+def _nash_index(points, buyer_rv, seller_rv):
+    gains = (points["buyer_utility"] - buyer_rv).clip(lower=0) * (
+        points["seller_utility"] - seller_rv
+    ).clip(lower=0)
+    if len(gains) == 0:
+        return None
+    return int(gains.idxmax())
+
+
+def _extract_offer_from_history_entry(entry):
+    """Best-effort extraction of an offer from a NegMAS history entry."""
+    if entry is None:
+        return None
+
+    for name in (
+        "current_offer",
+        "offer",
+        "agreement",
+        "proposal",
+        "outcome",
+        "new_offer",
+    ):
+        if hasattr(entry, name):
+            offer = getattr(entry, name)
+            if offer is not None:
+                return _safe_offer_tuple(offer)
+
+    action = getattr(entry, "action", None)
+    if action is not None:
+        for name in (
+            "current_offer",
+            "offer",
+            "agreement",
+            "proposal",
+            "outcome",
+            "new_offer",
+        ):
+            if hasattr(action, name):
+                offer = getattr(action, name)
+                if offer is not None:
+                    return _safe_offer_tuple(offer)
+        try:
+            return _safe_offer_tuple(action)
+        except Exception:
+            pass
+
+    if isinstance(entry, dict):
+        for name in (
+            "current_offer",
+            "offer",
+            "agreement",
+            "proposal",
+            "outcome",
+            "new_offer",
+            "action",
+        ):
+            if name in entry and entry[name] is not None:
+                return _safe_offer_tuple(entry[name])
+
+    return None
+
+
+def build_single_session_summary(session, buyer_utility, seller_utility, result):
+    """Create a DataFrame with utility-space coordinates for all outcomes."""
+    outcomes = _get_all_outcomes(session)
+    df = pd.DataFrame(
+        {
+            "offer": outcomes,
+            "buyer_utility": [float(buyer_utility(o)) for o in outcomes],
+            "seller_utility": [float(seller_utility(o)) for o in outcomes],
+        }
+    )
+    df["social_welfare"] = df["buyer_utility"] + df["seller_utility"]
+    df["label"] = df["offer"].apply(_offer_to_text)
+    df["is_pareto"] = _pareto_mask(df)
+
+    buyer_rv = float(buyer_utility.reserved_value or 0.0)
+    seller_rv = float(seller_utility.reserved_value or 0.0)
+    nash_idx = _nash_index(df, buyer_rv, seller_rv)
+    df["is_nash"] = False
+    if nash_idx is not None:
+        df.loc[nash_idx, "is_nash"] = True
+
+    agreement = _safe_offer_tuple(getattr(result, "agreement", None))
+    df["is_agreement"] = df["offer"] == agreement if agreement is not None else False
+    return df
+
+
+# -----------------------------------------------------------------------------
+# Evaluation runs
+# -----------------------------------------------------------------------------
+
+
 def run_multiple_negotiations(n_runs=10, n_steps=20):
-    """Run multiple negotiations and collect results"""
+    """Run multiple negotiations and collect results."""
     results = []
 
     for run_id in range(n_runs):
-        session, seller_utility, buyer_utility = create_negotiation_scenario(n_steps)
-
-        # Test different agent combinations
         combinations = [
             (MicroNegotiator(name="buyer"), AdaptiveNegotiator(name="seller")),
             (AdaptiveNegotiator(name="buyer"), MicroNegotiator(name="seller")),
@@ -59,78 +256,79 @@ def run_multiple_negotiations(n_runs=10, n_steps=20):
         ]
 
         for buyer_agent, seller_agent in combinations:
-            session_copy, seller_utility_copy, buyer_utility_copy = (
-                create_negotiation_scenario(n_steps)
+            session, seller_utility, buyer_utility = create_single_issue_scenario(
+                n_steps
             )
-            session_copy.add(buyer_agent, ufun=buyer_utility_copy)
-            session_copy.add(seller_agent, ufun=seller_utility_copy)
+            session.add(buyer_agent, ufun=buyer_utility)
+            session.add(seller_agent, ufun=seller_utility)
+            result = session.run()
 
-            result = session_copy.run()
+            agreement = _safe_offer_tuple(getattr(result, "agreement", None))
+            agreed = agreement is not None
 
-            # Collect detailed results
-            history = session_copy.history
+            buyer_u = (
+                float(buyer_utility(agreement))
+                if agreed
+                else float(buyer_utility.reserved_value)
+            )
+            seller_u = (
+                float(seller_utility(agreement))
+                if agreed
+                else float(seller_utility.reserved_value)
+            )
+
             results.append(
                 {
                     "run_id": run_id,
                     "buyer_type": type(buyer_agent).__name__,
                     "seller_type": type(seller_agent).__name__,
-                    "agreement": result.agreement,
-                    "completed": result.completed,
-                    "broken": result.broken,
-                    "timedout": result.timedout,
-                    "n_steps": len(history) if history else 0,
-                    "buyer_utility": (
-                        buyer_utility_copy(result.agreement)
-                        if result.agreement
-                        else buyer_utility_copy.reserved_value
+                    "combo": f"{type(buyer_agent).__name__} vs {type(seller_agent).__name__}",
+                    "agreement": agreement,
+                    "agreed": agreed,
+                    "completed": bool(getattr(result, "completed", False)),
+                    "broken": bool(getattr(result, "broken", False)),
+                    "timedout": bool(getattr(result, "timedout", False)),
+                    "n_steps": (
+                        len(session.history) if getattr(session, "history", None) else 0
                     ),
-                    "seller_utility": (
-                        seller_utility_copy(result.agreement)
-                        if result.agreement
-                        else seller_utility_copy.reserved_value
-                    ),
-                    "social_welfare": (
-                        buyer_utility_copy(result.agreement)
-                        if result.agreement
-                        else buyer_utility_copy.reserved_value
-                    )
-                    + (
-                        seller_utility_copy(result.agreement)
-                        if result.agreement
-                        else seller_utility_copy.reserved_value
-                    ),
-                    "history": history,
+                    "buyer_utility": buyer_u,
+                    "seller_utility": seller_u,
+                    "social_welfare": buyer_u + seller_u,
+                    "utility_diff": abs(buyer_u - seller_u),
+                    "history": getattr(session, "history", None),
                 }
             )
 
     return pd.DataFrame(results)
 
 
-def plot_comprehensive_evaluation(results_df):
-    """Create comprehensive evaluation plots"""
+# -----------------------------------------------------------------------------
+# Aggregate plots
+# -----------------------------------------------------------------------------
 
-    # Set up the subplot grid
-    fig = plt.figure(figsize=(20, 16))
 
-    # 1. Agreement Rate by Agent Combination
-    plt.subplot(3, 3, 1)
+def plot_agreement_rate(results_df):
+    plt.figure("Agreement Rate", figsize=(8, 6))
     agreement_rates = (
-        results_df.groupby(["buyer_type", "seller_type"])
-        .apply(lambda x: (x["agreement"].notna().sum() / len(x)) * 100)
+        results_df.groupby(["buyer_type", "seller_type"])["agreed"]
+        .mean()
+        .mul(100)
         .unstack(fill_value=0)
     )
 
-    im1 = plt.imshow(
+    im = plt.imshow(
         agreement_rates.values, cmap="RdYlGn", aspect="auto", vmin=0, vmax=100
     )
     plt.xticks(
-        range(len(agreement_rates.columns)), agreement_rates.columns, rotation=45
+        range(len(agreement_rates.columns)),
+        agreement_rates.columns,
+        rotation=30,
+        ha="right",
     )
     plt.yticks(range(len(agreement_rates.index)), agreement_rates.index)
-    plt.title("Agreement Rate (%) by Agent Combination")
-    plt.colorbar(im1, shrink=0.8)
+    plt.title("Agreement Rate (%)")
+    plt.colorbar(im, shrink=0.8)
 
-    # Add text annotations
     for i in range(len(agreement_rates.index)):
         for j in range(len(agreement_rates.columns)):
             plt.text(
@@ -141,302 +339,254 @@ def plot_comprehensive_evaluation(results_df):
                 va="center",
                 fontsize=9,
             )
+    plt.tight_layout()
 
-    # 2. Average Utilities
-    plt.subplot(3, 3, 2)
-    agreed_results = results_df[results_df["agreement"].notna()]
-    utility_stats = (
-        agreed_results.groupby(["buyer_type", "seller_type"])
-        .agg({"buyer_utility": "mean", "seller_utility": "mean"})
-        .reset_index()
-    )
 
-    x_pos = np.arange(len(utility_stats))
-    width = 0.35
+def plot_outcomes_by_combination(results_df):
+    plt.figure("Outcomes", figsize=(10, 6))
+    summary = results_df.groupby("combo")[["completed", "broken", "timedout"]].sum()
+    x = np.arange(len(summary))
 
-    plt.bar(
-        x_pos - width / 2,
-        utility_stats["buyer_utility"],
-        width,
-        label="Buyer Utility",
-        alpha=0.8,
-        color="skyblue",
-    )
-    plt.bar(
-        x_pos + width / 2,
-        utility_stats["seller_utility"],
-        width,
-        label="Seller Utility",
-        alpha=0.8,
-        color="lightcoral",
-    )
+    completed = summary["completed"].values
+    broken = summary["broken"].values
+    timedout = summary["timedout"].values
 
-    plt.xlabel("Agent Combinations")
-    plt.ylabel("Average Utility")
-    plt.title("Average Utilities by Agent Combination")
-    plt.xticks(
-        x_pos,
-        [
-            f"{row['buyer_type']}\nvs\n{row['seller_type']}"
-            for _, row in utility_stats.iterrows()
-        ],
-        rotation=45,
-        ha="right",
-    )
+    plt.bar(x, completed, label="completed")
+    plt.bar(x, broken, bottom=completed, label="broken")
+    plt.bar(x, timedout, bottom=completed + broken, label="timedout")
+    plt.xticks(x, summary.index, rotation=25, ha="right")
+    plt.ylabel("Count")
+    plt.title("Outcome Counts by Combination")
     plt.legend()
     plt.tight_layout()
 
-    # 3. Social Welfare Distribution
-    plt.subplot(3, 3, 3)
-    for combo in results_df[["buyer_type", "seller_type"]].drop_duplicates().values:
-        combo_data = results_df[
-            (results_df["buyer_type"] == combo[0])
-            & (results_df["seller_type"] == combo[1])
-            & (results_df["agreement"].notna())
-        ]
-        if len(combo_data) > 0:
-            plt.hist(
-                combo_data["social_welfare"],
-                alpha=0.7,
-                label=f"{combo[0]} vs {combo[1]}",
-                bins=10,
-            )
 
-    plt.xlabel("Social Welfare")
-    plt.ylabel("Frequency")
-    plt.title("Social Welfare Distribution")
-    plt.legend()
-
-    # 4. Negotiation Length Distribution
-    plt.subplot(3, 3, 4)
-    for combo in results_df[["buyer_type", "seller_type"]].drop_duplicates().values:
-        combo_data = results_df[
-            (results_df["buyer_type"] == combo[0])
-            & (results_df["seller_type"] == combo[1])
-        ]
-        if len(combo_data) > 0:
-            plt.hist(
-                combo_data["n_steps"],
-                alpha=0.7,
-                label=f"{combo[0]} vs {combo[1]}",
-                bins=10,
-            )
-
-    plt.xlabel("Number of Steps")
-    plt.ylabel("Frequency")
-    plt.title("Negotiation Length Distribution")
-    plt.legend()
-
-    # 5. Success Rate by Outcome Type
-    plt.subplot(3, 3, 5)
-    outcome_stats = (
-        results_df.groupby(["buyer_type", "seller_type"])
-        .agg({"completed": "sum", "broken": "sum", "timedout": "sum"})
-        .sum(axis=1)
-        .reset_index()
-    )
-
-    outcomes = ["completed", "broken", "timedout"]
-    outcome_counts = [results_df[col].sum() for col in outcomes]
-
-    plt.pie(outcome_counts, labels=outcomes, autopct="%1.1f%%", startangle=90)
-    plt.title("Negotiation Outcomes Distribution")
-
-    # 6. Utility vs Steps Scatter
-    plt.subplot(3, 3, 6)
-    agreed_results = results_df[results_df["agreement"].notna()]
-    scatter = plt.scatter(
-        agreed_results["n_steps"],
-        agreed_results["buyer_utility"] + agreed_results["seller_utility"],
-        c=agreed_results["social_welfare"],
-        cmap="viridis",
-        alpha=0.7,
-    )
-    plt.xlabel("Number of Steps")
-    plt.ylabel("Total Utility")
-    plt.title("Total Utility vs Negotiation Length")
-    plt.colorbar(scatter, label="Social Welfare")
-
-    # 7. Performance Comparison Table
-    plt.subplot(3, 3, 7)
+def plot_performance_table(results_df):
+    plt.figure("Performance Table", figsize=(12, 4.8))
     plt.axis("off")
 
-    perf_stats = (
-        results_df.groupby(["buyer_type", "seller_type"])
-        .agg(
-            {
-                "agreement": lambda x: f"{(x.notna().sum() / len(x) * 100):.1f}%",
-                "buyer_utility": lambda x: (
-                    f"{x.mean():.3f}" if x.notna().any() else "N/A"
-                ),
-                "seller_utility": lambda x: (
-                    f"{x.mean():.3f}" if x.notna().any() else "N/A"
-                ),
-                "social_welfare": lambda x: (
-                    f"{x.mean():.3f}" if x.notna().any() else "N/A"
-                ),
-                "n_steps": lambda x: f"{x.mean():.1f}",
-            }
-        )
-        .round(3)
-    )
+    agreed = _agreed_results(results_df)
+    agreement_rate = results_df.groupby("combo")["agreed"].mean().mul(100)
+    avg_steps = results_df.groupby("combo")["n_steps"].mean()
 
-    perf_stats.columns = [
-        "Agreement%",
-        "Buyer Util",
-        "Seller Util",
-        "Social Welfare",
-        "Avg Steps",
-    ]
-
-    table_data = []
-    for idx, row in perf_stats.iterrows():
-        table_data.append([f"{idx[0]} vs {idx[1]}"] + list(row))
+    table_df = pd.DataFrame(
+        {
+            "Agreement %": agreement_rate.map(lambda x: f"{x:.1f}%"),
+            "Avg Buyer Util": agreed.groupby("combo")["buyer_utility"].mean().round(3),
+            "Avg Seller Util": agreed.groupby("combo")["seller_utility"]
+            .mean()
+            .round(3),
+            "Avg Welfare": agreed.groupby("combo")["social_welfare"].mean().round(3),
+            "Avg Steps": avg_steps.round(1),
+        }
+    ).fillna("-")
 
     table = plt.table(
-        cellText=table_data,
-        colLabels=["Combination"] + list(perf_stats.columns),
+        cellText=table_df.reset_index().values,
+        colLabels=["Combination"] + list(table_df.columns),
         cellLoc="center",
         loc="center",
         bbox=[0, 0, 1, 1],
     )
     table.auto_set_font_size(False)
     table.set_fontsize(9)
-    table.scale(1, 1.5)
-    plt.title("Performance Summary Table", pad=20)
+    table.scale(1.0, 1.4)
+    plt.title("Performance Summary")
+    plt.tight_layout()
 
-    # 8. Fairness Analysis (Utility Difference)
-    plt.subplot(3, 3, 8)
-    agreed_results["utility_diff"] = abs(
-        agreed_results["buyer_utility"] - agreed_results["seller_utility"]
-    )
 
-    fairness_stats = agreed_results.groupby(["buyer_type", "seller_type"])[
-        "utility_diff"
-    ].mean()
+def plot_sample_negotiation_dynamics(results_df, buyer_utility, seller_utility):
+    """Plot real offer utilities from one sample history."""
+    plt.figure("Sample Dynamics", figsize=(10, 6))
+    sample = results_df[results_df["history"].notna()]
+    if sample.empty:
+        plt.text(0.5, 0.5, "No negotiation history available", ha="center", va="center")
+        plt.title("Sample Negotiation Dynamics")
+        plt.tight_layout()
+        return
 
-    x_pos = np.arange(len(fairness_stats))
-    plt.bar(x_pos, fairness_stats.values, color="orange", alpha=0.7)
-    plt.xlabel("Agent Combinations")
-    plt.ylabel("Average Utility Difference")
-    plt.title("Fairness Analysis (Lower = More Fair)")
-    plt.xticks(
-        x_pos,
-        [f"{idx[0]}\nvs\n{idx[1]}" for idx in fairness_stats.index],
-        rotation=45,
-        ha="right",
-    )
+    history = sample.iloc[0]["history"]
+    offers = []
+    for entry in history:
+        offer = _extract_offer_from_history_entry(entry)
+        if offer is not None:
+            offers.append(offer)
 
-    # 9. Negotiation Dynamics (Sample)
-    plt.subplot(3, 3, 9)
-
-    # Show utility progression for one successful negotiation
-    sample_negotiation = (
-        results_df[
-            (results_df["agreement"].notna()) & (results_df["history"].notna())
-        ].iloc[0]
-        if len(results_df[results_df["agreement"].notna()]) > 0
-        else None
-    )
-
-    if sample_negotiation is not None and sample_negotiation["history"]:
-        history = sample_negotiation["history"]
-        steps = list(range(len(history)))
-
-        # Extract offers and calculate utilities (simplified)
-        offers = [
-            step.action for step in history if hasattr(step, "action") and step.action
-        ]
-        if offers:
-            step_range = list(range(len(offers)))
-            plt.plot(
-                step_range,
-                [0.5 + 0.1 * np.sin(i * 0.5) for i in step_range],
-                label="Buyer Utility",
-                marker="o",
-                markersize=4,
-            )
-            plt.plot(
-                step_range,
-                [0.6 - 0.1 * np.cos(i * 0.3) for i in step_range],
-                label="Seller Utility",
-                marker="s",
-                markersize=4,
-            )
-
-            plt.xlabel("Negotiation Step")
-            plt.ylabel("Utility")
-            plt.title("Sample Negotiation Dynamics")
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-    else:
+    if not offers:
         plt.text(
-            0.5,
-            0.5,
-            "No negotiation\nhistory available",
-            ha="center",
-            va="center",
-            transform=plt.gca().transAxes,
+            0.5, 0.5, "Could not extract offers from history", ha="center", va="center"
         )
         plt.title("Sample Negotiation Dynamics")
+        plt.tight_layout()
+        return
 
+    buyer_trace = [float(buyer_utility(o)) for o in offers]
+    seller_trace = [float(seller_utility(o)) for o in offers]
+    x = np.arange(len(offers))
+
+    plt.plot(x, buyer_trace, marker="o", label="Buyer utility of each offer")
+    plt.plot(x, seller_trace, marker="s", label="Seller utility of each offer")
+    plt.xlabel("Offer index")
+    plt.ylabel("Utility")
+    plt.title("Sample Negotiation Dynamics (Real Utilities)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
     plt.tight_layout()
+
+
+# -----------------------------------------------------------------------------
+# Single-session custom utility map
+# -----------------------------------------------------------------------------
+
+
+def plot_single_session_utility_map(
+    session,
+    buyer_utility,
+    seller_utility,
+    result,
+    scale_to_100=False,
+    annotate_frontier_points=8,
+    title="Negotiation Utility Map",
+):
+    """
+    Plot:
+    - all outcomes in utility space
+    - Pareto frontier
+    - reservation lines
+    - Nash point
+    - agreement point
+    """
+    fig, ax = plt.subplots(figsize=(10, 7))
+    df = build_single_session_summary(session, buyer_utility, seller_utility, result)
+
+    scale = 100.0 if scale_to_100 else 1.0
+    bx = df["buyer_utility"] * scale
+    sy = df["seller_utility"] * scale
+
+    ax.scatter(bx, sy, s=28, alpha=0.30, label="All outcomes")
+
+    frontier = df[df["is_pareto"]].copy().sort_values("buyer_utility")
+    ax.scatter(
+        frontier["buyer_utility"] * scale,
+        frontier["seller_utility"] * scale,
+        s=70,
+        label="Pareto frontier",
+    )
+    ax.plot(
+        frontier["buyer_utility"] * scale,
+        frontier["seller_utility"] * scale,
+        linewidth=1.5,
+        alpha=0.9,
+    )
+
+    if annotate_frontier_points > 0 and not frontier.empty:
+        idxs = np.linspace(
+            0,
+            len(frontier) - 1,
+            min(annotate_frontier_points, len(frontier)),
+            dtype=int,
+        )
+        frontier_subset = frontier.iloc[np.unique(idxs)]
+        for _, row in frontier_subset.iterrows():
+            ax.annotate(
+                row["label"],
+                (row["buyer_utility"] * scale, row["seller_utility"] * scale),
+                xytext=(6, 6),
+                textcoords="offset points",
+                fontsize=9,
+            )
+
+    buyer_rv = float(buyer_utility.reserved_value or 0.0) * scale
+    seller_rv = float(seller_utility.reserved_value or 0.0) * scale
+    ax.axvline(buyer_rv, color="red", linewidth=2, label="Buyer reservation")
+    ax.axhline(seller_rv, color="darkred", linewidth=2, label="Seller reservation")
+
+    nash = df[df["is_nash"]]
+    if not nash.empty:
+        row = nash.iloc[0]
+        ax.scatter(
+            [row["buyer_utility"] * scale],
+            [row["seller_utility"] * scale],
+            s=180,
+            marker="D",
+            label="Nash point",
+        )
+        ax.annotate(
+            "Nash",
+            (row["buyer_utility"] * scale, row["seller_utility"] * scale),
+            xytext=(8, -14),
+            textcoords="offset points",
+        )
+
+    agreement = df[df["is_agreement"]]
+    if not agreement.empty:
+        row = agreement.iloc[0]
+        ax.scatter(
+            [row["buyer_utility"] * scale],
+            [row["seller_utility"] * scale],
+            s=260,
+            marker="*",
+            label="Agreement",
+        )
+        ax.annotate(
+            f"Agreement\n{row['label']}",
+            (row["buyer_utility"] * scale, row["seller_utility"] * scale),
+            xytext=(10, 10),
+            textcoords="offset points",
+            fontsize=10,
+        )
+
+    xmax = max(1.0 * scale, bx.max() * 1.08 if len(bx) else 1.0)
+    ymax = max(1.0 * scale, sy.max() * 1.08 if len(sy) else 1.0)
+    ax.set_xlim(0, xmax)
+    ax.set_ylim(0, ymax)
+    ax.set_xlabel("Utility of buyer" + (" (0-100)" if scale_to_100 else ""))
+    ax.set_ylabel("Utility of seller" + (" (0-100)" if scale_to_100 else ""))
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best")
+    plt.tight_layout()
+
+
+# -----------------------------------------------------------------------------
+# Driver helpers
+# -----------------------------------------------------------------------------
+
+
+def plot_custom_aggregate_evaluation(results_df, buyer_utility, seller_utility):
+    plot_agreement_rate(results_df)
+    plot_outcomes_by_combination(results_df)
+    plot_performance_table(results_df)
+    plot_sample_negotiation_dynamics(results_df, buyer_utility, seller_utility)
     plt.show()
 
 
 def print_detailed_statistics(results_df):
-    """Print detailed statistical analysis"""
     print(
         "\n[bold cyan]═══════════════════════════════════════════════════[/bold cyan]"
     )
     print("[bold cyan]              DETAILED EVALUATION REPORT          [/bold cyan]")
     print("[bold cyan]═══════════════════════════════════════════════════[/bold cyan]")
 
-    # Overall Statistics
-    print(
-        "\n[bold yellow]── Overall Statistics ──────────────────────────────[/bold yellow]"
-    )
-    total_negotiations = len(results_df)
-    successful_agreements = results_df["agreement"].notna().sum()
-    agreement_rate = (successful_agreements / total_negotiations) * 100
-
-    print(f"Total Negotiations: {total_negotiations}")
-    print(f"Successful Agreements: {successful_agreements}")
-    print(f"Overall Agreement Rate: {agreement_rate:.1f}%")
+    total = len(results_df)
+    agreements = int(results_df["agreed"].sum())
+    print(f"\nTotal Negotiations: {total}")
+    print(f"Successful Agreements: {agreements}")
+    print(f"Overall Agreement Rate: {100.0 * agreements / max(total, 1):.1f}%")
     print(f"Average Negotiation Length: {results_df['n_steps'].mean():.1f} steps")
 
-    # Agent Performance
     print(
         "\n[bold yellow]── Agent Combination Performance ───────────────────[/bold yellow]"
     )
-    perf_analysis = (
-        results_df.groupby(["buyer_type", "seller_type"])
-        .agg(
-            {
-                "agreement": lambda x: (
-                    x.notna().sum(),
-                    len(x),
-                    (x.notna().sum() / len(x)) * 100,
-                ),
-                "buyer_utility": ["mean", "std"],
-                "seller_utility": ["mean", "std"],
-                "social_welfare": ["mean", "std"],
-                "n_steps": ["mean", "std"],
-            }
+    for combo, group in results_df.groupby("combo"):
+        agreed = group[group["agreed"]].copy()
+        rate = 100.0 * group["agreed"].mean()
+        print(f"\n{combo}:")
+        print(f"  Agreement Rate: {rate:.1f}%")
+        print(
+            f"  Avg Steps: {group['n_steps'].mean():.1f} ± {group['n_steps'].std():.1f}"
         )
-        .round(3)
-    )
-
-    for (buyer, seller), group in results_df.groupby(["buyer_type", "seller_type"]):
-        agreements = group["agreement"].notna().sum()
-        total = len(group)
-        rate = (agreements / total) * 100
-
-        print(f"\n{buyer} vs {seller}:")
-        print(f"  Agreement Rate: {agreements}/{total} ({rate:.1f}%)")
-
-        if agreements > 0:
-            agreed = group[group["agreement"].notna()]
+        if not agreed.empty:
             print(
                 f"  Avg Buyer Utility: {agreed['buyer_utility'].mean():.3f} ± {agreed['buyer_utility'].std():.3f}"
             )
@@ -446,55 +596,71 @@ def print_detailed_statistics(results_df):
             print(
                 f"  Avg Social Welfare: {agreed['social_welfare'].mean():.3f} ± {agreed['social_welfare'].std():.3f}"
             )
-            print(
-                f"  Avg Steps: {agreed['n_steps'].mean():.1f} ± {agreed['n_steps'].std():.1f}"
-            )
+            print(f"  Avg Utility Difference: {agreed['utility_diff'].mean():.3f}")
 
-    # Fairness Analysis
-    print(
-        "\n[bold yellow]── Fairness Analysis ────────────────────────────────[/bold yellow]"
-    )
-    agreed_results = results_df[results_df["agreement"].notna()]
-    if len(agreed_results) > 0:
-        agreed_results["utility_difference"] = abs(
-            agreed_results["buyer_utility"] - agreed_results["seller_utility"]
-        )
 
-        for (buyer, seller), group in agreed_results.groupby(
-            ["buyer_type", "seller_type"]
-        ):
-            if len(group) > 0:
-                avg_diff = group["utility_difference"].mean()
-                print(f"{buyer} vs {seller}: Avg Utility Difference = {avg_diff:.3f}")
+def plot_builtin_negmas_session(session):
+    """Use NegMAS built-in plotting for a single session."""
+    try:
+        session.plot(show_reserved=True)
+    except TypeError:
+        session.plot()
+
+
+def print_builtin_negmas_analysis(session):
+    """Print built-in NegMAS analytics if available."""
+    try:
+        frontier = session.pareto_frontier()
+        print(f"[green]Built-in Pareto frontier:[/green] {frontier}")
+    except Exception as e:
+        print(f"[red]Could not get built-in Pareto frontier:[/red] {e}")
+
+    try:
+        nash = session.nash_points()
+        print(f"[green]Built-in Nash points:[/green] {nash}")
+    except Exception as e:
+        print(f"[red]Could not get built-in Nash points:[/red] {e}")
 
 
 def main():
-    print("[bold green]Starting Comprehensive Negotiation Evaluation...[/bold green]")
+    print("[bold green]Starting improved negotiation evaluation...[/bold green]")
 
-    # Run multiple negotiations
-    print("\n[yellow]Running multiple negotiation rounds...[/yellow]")
+    # Aggregate evaluation
+    _, seller_utility_ref, buyer_utility_ref = create_single_issue_scenario(n_steps=20)
     results_df = run_multiple_negotiations(n_runs=5, n_steps=20)
-
-    # Print detailed statistics
     print_detailed_statistics(results_df)
 
-    # Create comprehensive plots
-    print("\n[yellow]Generating comprehensive evaluation plots...[/yellow]")
-    plot_comprehensive_evaluation(results_df)
+    print("\n[yellow]Generating custom aggregate evaluation plots...[/yellow]")
+    plot_custom_aggregate_evaluation(results_df, buyer_utility_ref, seller_utility_ref)
 
-    # Run single detailed negotiation for debugging
-    print("\n[yellow]Running detailed single negotiation...[/yellow]")
-    session, seller_utility, buyer_utility = create_negotiation_scenario(n_steps=20)
+    # Single session
+    print("\n[yellow]Running single detailed negotiation...[/yellow]")
+    session, seller_utility, buyer_utility = create_single_issue_scenario(n_steps=20)
     session.add(MicroNegotiator(name="buyer"), ufun=buyer_utility)
     session.add(AdaptiveNegotiator(name="seller"), ufun=seller_utility)
 
     result = session.run()
-    print(f"\nSingle Negotiation Result: {result}")
+    print(f"Result: {result}")
 
-    # Show original plot
-    session.plot(show_reserved=False)
+    # Built-in NegMAS plot
+    print("\n[yellow]Showing built-in NegMAS session plot...[/yellow]")
+    plot_builtin_negmas_session(session)
 
-    print("\n[bold green]Evaluation Complete![/bold green]")
+    # Built-in analytics
+    print("\n[yellow]Printing built-in NegMAS analysis...[/yellow]")
+    print_builtin_negmas_analysis(session)
+
+    # Custom combined utility map
+    print("\n[yellow]Showing custom utility map...[/yellow]")
+    plot_single_session_utility_map(
+        session,
+        buyer_utility,
+        seller_utility,
+        result,
+        scale_to_100=False,
+        title="Utility Map: MicroNegotiator vs AdaptiveNegotiator",
+    )
+    plt.show()
 
 
 if __name__ == "__main__":
