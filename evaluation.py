@@ -637,7 +637,7 @@ def main():
     print("\n[yellow]Running single detailed negotiation...[/yellow]")
     session, seller_utility, buyer_utility = create_single_issue_scenario(n_steps=20)
     session.add(MicroNegotiator(name="buyer"), ufun=buyer_utility)
-    session.add(AdaptiveNegotiator(name="seller"), ufun=seller_utility)
+    session.add(MicroNegotiator(name="seller"), ufun=seller_utility)
 
     result = session.run()
     print(f"Result: {result}")
