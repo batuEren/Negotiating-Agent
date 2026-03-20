@@ -231,8 +231,8 @@ def main():
             MicroNegotiator,
             TimeBasedAgent,
         ],
-        scenarios=get_scenarios(n=2),
-        n_repetitions=1,
+        scenarios=get_scenarios(n=10),
+        n_repetitions=20,
         path=path,
         njobs=-1,  # Serialaize
     )
