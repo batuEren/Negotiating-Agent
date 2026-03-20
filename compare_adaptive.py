@@ -142,9 +142,12 @@ def print_extensive_evaluation(scores):
         .to_string()
     )
 
-    # ── 4. Optimality Metrics ────────────────────────────────────────────────
+    # ── 4. Distance Metrics ───────────────────────────────────────────────────
+    # Distances derived from optimality scores: dist = 1 - optimality
+    # (consistent with NegMAS built-in plot which shows raw Pareto/Nash distance)
+    # 0.0 = exactly at the solution concept point, higher = further away.
     print(
-        "\n[bold yellow]── Optimality Metrics (agreements only) ────────────[/bold yellow]"
+        "\n[bold yellow]── Distance Metrics (agreements only, lower = better) ──[/bold yellow]"
     )
     opt_cols = [
         c
@@ -160,8 +163,16 @@ def print_extensive_evaluation(scores):
         if c in agreed.columns
     ]
     opt = agreed.groupby("strategy")[opt_cols].mean().round(4)
-    opt = opt.sort_values("nash_optimality", ascending=False)
-    print(opt.to_string())
+    # Convert to distances (lower = better, matches built-in plot direction)
+    dist_cols = {c: c.replace("_optimality", "_dist") for c in opt_cols
+                 if c != "max_welfare_optimality"}
+    dist = (1 - opt[[c for c in opt_cols if c != "max_welfare_optimality"]]).rename(
+        columns=dist_cols
+    ).round(4)
+    if "max_welfare_optimality" in opt_cols:
+        dist["max_welfare_dist"] = (1 - opt["max_welfare_optimality"]).round(4)
+    dist = dist.sort_values("nash_dist", ascending=True)
+    print(dist.to_string())
 
     # ── 5. Time Statistics ───────────────────────────────────────────────────
     if "time" in df.columns:
@@ -203,12 +214,13 @@ def print_extensive_evaluation(scores):
     rank_df["agree_%"]        = df.groupby("strategy")["agreed"].mean() * 100
     rank_df["advantage"]      = agreed.groupby("strategy")["advantage"].mean()
     rank_df["social_welfare"] = agreed.groupby("strategy")["welfare"].mean()
-    rank_df["nash_opt"]       = (
-        agreed.groupby("strategy")["nash_optimality"].mean()
+    # distances: 0.0 = at solution point, higher = further away (matches built-in plot)
+    rank_df["nash_dist"]   = (
+        1 - agreed.groupby("strategy")["nash_optimality"].mean()
         if "nash_optimality" in agreed.columns else np.nan
     )
-    rank_df["pareto_opt"]     = (
-        agreed.groupby("strategy")["pareto_optimality"].mean()
+    rank_df["pareto_dist"] = (
+        1 - agreed.groupby("strategy")["pareto_optimality"].mean()
         if "pareto_optimality" in agreed.columns else np.nan
     )
     rank_df = rank_df.sort_values("advantage", ascending=False).round(4)
