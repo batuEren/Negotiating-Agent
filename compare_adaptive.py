@@ -191,29 +191,28 @@ def print_extensive_evaluation(scores):
     print(scen.to_string())
 
     # ── 7. Rank Summary ──────────────────────────────────────────────────────
+    # Columns directly address the three criteria from the assignment (Sec. 2.4):
+    #   "how close is the outcome to the Pareto frontier?
+    #    How close is it to the Nash Product?
+    #    Does it optimize Social Welfare?"
+    # Sorted by advantage (NegMAS standard: self-gain above reservation).
     print(
         "\n[bold yellow]── Overall Rank Summary ─────────────────────────────[/bold yellow]"
     )
     rank_df = pd.DataFrame(index=strategies)
-    rank_df["utility"] = agreed.groupby("strategy")["utility"].mean()
-    rank_df["advantage"] = agreed.groupby("strategy")["advantage"].mean()
-    rank_df["nash_opt"] = (
+    rank_df["agree_%"]        = df.groupby("strategy")["agreed"].mean() * 100
+    rank_df["advantage"]      = agreed.groupby("strategy")["advantage"].mean()
+    rank_df["social_welfare"] = agreed.groupby("strategy")["welfare"].mean()
+    rank_df["nash_opt"]       = (
         agreed.groupby("strategy")["nash_optimality"].mean()
-        if "nash_optimality" in agreed.columns
-        else np.nan
+        if "nash_optimality" in agreed.columns else np.nan
     )
-    rank_df["fairness"] = (
-        agreed.groupby("strategy")["fairness"].mean()
-        if "fairness" in agreed.columns
-        else np.nan
+    rank_df["pareto_opt"]     = (
+        agreed.groupby("strategy")["pareto_optimality"].mean()
+        if "pareto_optimality" in agreed.columns else np.nan
     )
-    rank_df["agree_%"] = df.groupby("strategy")["agreed"].mean() * 100
-    # Composite: normalise each column then average
-    norm = (rank_df - rank_df.min()) / (rank_df.max() - rank_df.min() + 1e-12)
-    rank_df["composite"] = norm.mean(axis=1)
-    rank_df = rank_df.sort_values("composite", ascending=False).round(4)
-    for col in ["agree_%"]:
-        rank_df[col] = rank_df[col].map("{:.1f}%".format)
+    rank_df = rank_df.sort_values("advantage", ascending=False).round(4)
+    rank_df["agree_%"] = rank_df["agree_%"].map("{:.1f}%".format)
     print(rank_df.to_string())
     print()
 
