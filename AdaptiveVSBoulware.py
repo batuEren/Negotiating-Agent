@@ -208,9 +208,19 @@ def _extract_trace(session, buyer_ufun, seller_ufun):
 # Run negotiations
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _make_agent(name: str, role: str):
-    return AdaptiveNegotiator(name=role) if name == "AdaptiveNegotiator" \
-           else BoulwareTBNegotiator(name=role)
+def _short(type_name: str) -> str:
+    return type_name.replace("TBNegotiator", "TB").replace("Negotiator", "")
+
+
+def _make_agent(type_name: str, role: str):
+    """Create agent with a label that encodes both type and role.
+    E.g. 'Adaptive-buyer', 'BoulwareTB-seller'.
+    This survives NegMAS uniqueness suffixes like (0)/(1).
+    """
+    label = f"{_short(type_name)}-{role}"
+    if type_name == "AdaptiveNegotiator":
+        return AdaptiveNegotiator(name=label)
+    return BoulwareTBNegotiator(name=label)
 
 
 def run_negotiations(scenario_fn, scenario_name: str,
@@ -623,6 +633,40 @@ def plot_radar_summary(all_dfs: list[pd.DataFrame], scenario_names: list[str]):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Plot 5 — Built-in NegMAS session plot
+# Runs one negotiation per combo and calls session.plot(), which shows the
+# NegMAS standard visualisation: offer trace, Pareto distance, agreement point,
+# Nash/Kalai markers.  One figure per combo per scenario.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def plot_builtin_negmas(scenario_fn, scenario_name: str, n_steps: int = 30):
+    # Only show the two cross-agent combos — symmetric ones add no new insight
+    cross_combos = [(b, s) for b, s in COMBOS if b != s]
+    for buyer_type, seller_type in cross_combos:
+        session, seller_ufun, buyer_ufun = scenario_fn(n_steps=n_steps)
+        session.add(_make_agent(buyer_type,  "buyer"),  ufun=buyer_ufun)
+        session.add(_make_agent(seller_type, "seller"), ufun=seller_ufun)
+        session.run()
+
+        combo_label = (f"{_short(buyer_type)}-buyer  vs  "
+                       f"{_short(seller_type)}-seller — {scenario_name}")
+        try:
+            fig = session.plot(show_reserved=True)
+        except TypeError:
+            fig = session.plot()
+
+        # session.plot() creates and returns its own figure; retitle it
+        if fig is not None:
+            fig.suptitle(f"NegMAS Built-in Plot\n{combo_label}",
+                         fontweight="bold", fontsize=11)
+        else:
+            # Some NegMAS versions return None and use plt.gcf()
+            plt.suptitle(f"NegMAS Built-in Plot\n{combo_label}",
+                         fontweight="bold", fontsize=11)
+        plt.tight_layout()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -660,6 +704,11 @@ def main():
 
     # Plot 4 – Radar summary
     plot_radar_summary(all_dfs, scenario_names)
+
+    # Plot 5 – Built-in NegMAS session plot (one per combo per scenario)
+    for sname, fn in zip(scenario_names, SCENARIOS.values()):
+        print(f"  [dim]Running NegMAS built-in plots for: {sname}[/dim]")
+        plot_builtin_negmas(fn, sname, n_steps=N_STEPS)
 
     plt.show()
 
