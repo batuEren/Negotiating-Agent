@@ -12,7 +12,7 @@ from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import LinearFun, IdentityFun, AffineFun
 
 
-class AdaptivePrONeg(SAONegotiator):
+class AdaptiveNegotiator(SAONegotiator):
     """
     Adaptive SAOP negotiator:
     - Bayesian learning opponent model   (Bayes' rule, Eq. 4-5)
@@ -59,6 +59,8 @@ class AdaptivePrONeg(SAONegotiator):
         # AC_low: track min utility we have proposed
         self._min_proposed_util = float("inf")
 
+        self._boulware_flag = False  # sticky Boulware detection
+
         self._util_cache = {}
         self._pool = []
 
@@ -95,6 +97,7 @@ class AdaptivePrONeg(SAONegotiator):
         self._min_proposed_util = float("inf")
         self._agree_prob = 0.5
         self._predicted_util = None
+        self._boulware_flag = False
 
         self._init_bayesian_model()
         self._build_pool()
@@ -475,17 +478,57 @@ class AdaptivePrONeg(SAONegotiator):
         recent = self._opp_utils[-5:]
         return recent[-1] > recent[0]
 
+    def _is_boulware_opponent(self):
+        """Sticky Boulware detection: set once flat pattern is confirmed,
+        only cleared by sustained large concession across a full window.
+
+        A single late-game spike must not drop the flag — that is exactly
+        when we most need the Boulware guard to stay active.
+        """
+        if len(self._opp_utils) < 8:
+            return self._boulware_flag
+        recent = self._opp_utils[-8:]
+        spread = max(recent) - min(recent)
+        if spread < 0.03:
+            # Flat window — confirm Boulware
+            self._boulware_flag = True
+        elif spread > 0.15 and self._opp_utils[-1] > 0.5:
+            # Only clear if the window is spread AND current offers are
+            # genuinely good for us — rules out a single late spike from 0→0.3
+            self._boulware_flag = False
+        # else: small or mid spike — keep existing flag
+        return self._boulware_flag
+
+    def _opponent_spiked(self):
+        """True if the opponent just made a large concession after being flat."""
+        if len(self._opp_utils) < 4:
+            return False
+        return (self._opp_utils[-1] - self._opp_utils[-2]) > 0.08
+
     def _beta_adapt(self, t):
-        """Adaptive target based on opponent behaviour."""
+        """Adaptive target based on opponent behaviour.
+
+        If the opponent looks like a Boulware agent (flat curve), hold firm
+        rather than conceding — they will drop near the deadline.
+        """
         ratio = max(0.0, 1.0 - t**self.E)
 
-        conceding = self._opponent_is_conceding()
-        if conceding is True:
-            # Opponent conceding -> be hardheaded (raise target)
-            ratio = min(1.0, ratio + 0.08)
-        elif conceding is False:
-            # Opponent hardheaded -> concede (lower target)
-            ratio = max(0.0, ratio - 0.08)
+        if self._is_boulware_opponent():
+            if self._opponent_spiked() and t > 0.85:
+                # Late-game spike only — move toward them but stay principled.
+                # Before t=0.85 a "spike" is just a Boulware warming up; ignore it.
+                ratio = max(0.0, ratio - 0.20)
+            else:
+                # Hold firm: flat curve means they will drop near the deadline
+                ratio = min(1.0, ratio + 0.05)
+        else:
+            conceding = self._opponent_is_conceding()
+            if conceding is True:
+                # Opponent conceding -> be hardheaded (raise target)
+                ratio = min(1.0, ratio + 0.08)
+            elif conceding is False:
+                # Opponent hardheaded -> concede (lower target)
+                ratio = max(0.0, ratio - 0.08)
 
         return self._min_util + ratio * (self._max_util - self._min_util)
 
@@ -499,16 +542,20 @@ class AdaptivePrONeg(SAONegotiator):
         t = state.relative_time if state.relative_time is not None else 0.0
         beta = max(self._beta_0(t), self._beta_adapt(t))
 
-        # PrONeg modulation: agreement probability shapes urgency
-        if self._agree_prob < 0.3 and t > 0.3:
+        # PrONeg modulation: agreement probability shapes urgency.
+        # Skip for Boulware opponents — low agree_prob early is expected
+        # and the correct response is to wait, not concede.
+        if self._agree_prob < 0.3 and t > 0.3 and not self._is_boulware_opponent():
             # Low agreement probability → concede to avoid breakoff
             beta = beta - 0.05 * (1.0 - self._agree_prob)
         elif self._agree_prob > 0.7:
             # High agreement probability → safe to hold firm
             beta = beta + 0.03 * self._agree_prob
 
-        # If we have a predicted outcome utility, nudge target towards it
-        if self._predicted_util is not None and t > 0.2:
+        # If we have a predicted outcome utility, nudge target towards it.
+        # Disabled for Boulware opponents: linear regression over a flat curve
+        # will predict continued flatness and pull the target down too early.
+        if self._predicted_util is not None and t > 0.2 and not self._is_boulware_opponent():
             blend = min(0.3, t)  # trust prediction more as time passes
             beta = (1.0 - blend) * beta + blend * self._predicted_util
 
@@ -542,12 +589,16 @@ class AdaptivePrONeg(SAONegotiator):
         if offer_u >= self._target(state):
             return ResponseType.ACCEPT_OFFER
 
+
         # AC_proneg: if agreement looks unlikely and offer is reasonable,
-        # accept to avoid breakoff  (paper Sect. 5: "Tactical Guidance")
+        # accept to avoid breakoff  (paper Sect. 5: "Tactical Guidance").
+        # Disabled against Boulware: low agree_prob at t=0.7 is their normal
+        # behaviour — waiting is the right call, not panic-accepting.
         if (
             self._agree_prob < 0.25
             and offer_u >= self._reservation + 0.05
             and (state.relative_time or 0) > 0.7
+            and not self._is_boulware_opponent()
         ):
             return ResponseType.ACCEPT_OFFER
 
