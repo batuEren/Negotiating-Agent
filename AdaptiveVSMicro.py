@@ -7,7 +7,7 @@ import pandas as pd
 from rich import print
 
 from microNegotiator import MicroNegotiator
-from adaptive_agent import AdaptiveNegotiator
+from adaptive_proneg import AdaptivePrONeg
 
 
 # -----------------------------------------------------------------------------
@@ -249,9 +249,9 @@ def run_multiple_negotiations(n_runs=10, n_steps=20):
 
     for run_id in range(n_runs):
         combinations = [
-            (MicroNegotiator(name="buyer"), AdaptiveNegotiator(name="seller")),
-            (AdaptiveNegotiator(name="buyer"), MicroNegotiator(name="seller")),
-            (AdaptiveNegotiator(name="buyer"), AdaptiveNegotiator(name="seller")),
+            (MicroNegotiator(name="buyer"), AdaptivePrONeg(name="seller")),
+            (AdaptivePrONeg(name="buyer"), MicroNegotiator(name="seller")),
+            (AdaptivePrONeg(name="buyer"), AdaptivePrONeg(name="seller")),
             (MicroNegotiator(name="buyer"), MicroNegotiator(name="seller")),
         ]
 
@@ -658,7 +658,7 @@ def main():
         seller_utility,
         result,
         scale_to_100=False,
-        title="Utility Map: MicroNegotiator vs AdaptiveNegotiator",
+        title="Utility Map: MicroNegotiator vs AdaptivePrONeg",
     )
     plt.show()
 

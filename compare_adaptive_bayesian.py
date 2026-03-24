@@ -21,9 +21,10 @@ from negmas.outcomes.outcome_space import make_os
 from negmas.preferences import LinearAdditiveUtilityFunction as U
 from negmas.tournaments.neg import cartesian_tournament
 
-from adaptive_agent import AdaptiveNegotiator
+from adaptive_bayesian import AdaptiveBayesian
 from microNegotiator import MicroNegotiator
 from timeBasedAgent import TimeBasedAgent
+from titTat import TitForTatAgent
 
 
 def get_scenarios(n=10) -> list[Scenario]:
@@ -235,12 +236,13 @@ def main():
 
     results = cartesian_tournament(
         competitors=[
-            AdaptiveNegotiator,
+            AdaptiveBayesian,
             BoulwareTBNegotiator,
             ConcederTBNegotiator,
             LinearTBNegotiator,
             MicroNegotiator,
             TimeBasedAgent,
+            TitForTatAgent,
         ],
         scenarios=get_scenarios(n=10),
         n_repetitions=20,

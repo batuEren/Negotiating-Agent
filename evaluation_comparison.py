@@ -1,7 +1,7 @@
 """
 evaluation_comparison.py
 ========================
-Comprehensive head-to-head evaluation of MicroNegotiator vs AdaptiveNegotiator.
+Comprehensive head-to-head evaluation of MicroNegotiator vs AdaptivePrONeg.
 
 Metrics covered
 ---------------
@@ -42,7 +42,7 @@ from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import AffineFun, IdentityFun, LinearFun
 
 from microNegotiator import MicroNegotiator
-from adaptive_agent import AdaptiveNegotiator
+from adaptive_proneg import AdaptivePrONeg
 
 warnings.filterwarnings("ignore")
 console = Console()
@@ -160,7 +160,7 @@ def _nash_distance(offer, session, buyer_ufun, seller_ufun):
 
 AGENT_CLASSES = {
     "Micro": MicroNegotiator,
-    "Adaptive": AdaptiveNegotiator,
+    "Adaptive": AdaptivePrONeg,
 }
 
 MATCHUPS = [
@@ -509,7 +509,7 @@ def plot_all(dfs: dict[str, pd.DataFrame]):
             ax7.set_ylabel("% on Pareto frontier")
 
     fig.suptitle(
-        "MicroNegotiator vs AdaptiveNegotiator — Full Comparison", fontsize=14, y=1.01
+        "MicroNegotiator vs AdaptivePrONeg — Full Comparison", fontsize=14, y=1.01
     )
     plt.tight_layout()
     plt.savefig("comparison_results.png", dpi=150, bbox_inches="tight")

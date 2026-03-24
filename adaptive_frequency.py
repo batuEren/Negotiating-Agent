@@ -11,7 +11,7 @@ from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import LinearFun, IdentityFun, AffineFun
 
 
-class FrequencyNegotiator(SAONegotiator):
+class AdaptiveFrequency(SAONegotiator):
     """
     Adaptive SAOP negotiator (v1 — Frequency Analysis):
     - Frequency Analysis opponent model  (slides 71-72)

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 
 from microNegotiator import MicroNegotiator
-from adaptive_agent import AdaptiveNegotiator
+from adaptive_proneg import AdaptivePrONeg
 
 
 def create_doc_style_scenario(n_steps=20):
@@ -74,7 +74,7 @@ def main():
     session, seller_utility, buyer_utility = create_doc_style_scenario(n_steps=20)
 
     session.add(MicroNegotiator(name="buyer"), ufun=buyer_utility)
-    session.add(AdaptiveNegotiator(name="seller"), ufun=seller_utility)
+    session.add(AdaptivePrONeg(name="seller"), ufun=seller_utility)
 
     result = session.run()
     print(result)

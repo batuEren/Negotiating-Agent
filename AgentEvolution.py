@@ -3,9 +3,9 @@ AgentEvolution.py
 =================
 Compares three evolutionary versions of the adaptive negotiator:
 
-  v1  FrequencyNegotiator  — Frequency Analysis opponent model
-  v2  BayesianNegotiator   — Bayesian opponent model (Bayes rule, Eq. 4-5)
-  v3  AdaptiveNegotiator   — Bayesian + PrONeg outcome prediction
+  v1  AdaptiveFrequency  — Frequency Analysis opponent model
+  v2  AdaptiveBayesian   — Bayesian opponent model (Bayes rule, Eq. 4-5)
+  v3  AdaptivePrONeg   — Bayesian + PrONeg outcome prediction
 
 Two head-to-head comparisons:
   Stage 1: v1 (Freq) vs v2 (Bayesian)   — impact of Bayesian model
@@ -40,9 +40,9 @@ from negmas import make_issue, SAOMechanism
 from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import AffineFun, IdentityFun, LinearFun
 
-from adaptive_frequency import FrequencyNegotiator
-from adaptive_bayesian import BayesianNegotiator
-from adaptive_agent import AdaptiveNegotiator
+from adaptive_frequency import AdaptiveFrequency
+from adaptive_bayesian import AdaptiveBayesian
+from adaptive_proneg import AdaptivePrONeg
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -50,9 +50,9 @@ from adaptive_agent import AdaptiveNegotiator
 # ─────────────────────────────────────────────────────────────────────────────
 
 AGENTS = {
-    "Old Adaptive (Frequency)": FrequencyNegotiator,
-    "Old Adaptive (Bayesian)":  BayesianNegotiator,
-    "Final Adaptive Version":   AdaptiveNegotiator,
+    "Old Adaptive (Frequency)": AdaptiveFrequency,
+    "Old Adaptive (Bayesian)":  AdaptiveBayesian,
+    "Final Adaptive Version":   AdaptivePrONeg,
 }
 
 # Two evolutionary stages to compare

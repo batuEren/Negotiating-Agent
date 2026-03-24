@@ -1,14 +1,12 @@
-#from https://negmas.readthedocs.io/en/latest/tutorials/01.running_simple_negotiation.html#a-simple-bilateral-negotiation
+# from https://negmas.readthedocs.io/en/latest/tutorials/01.running_simple_negotiation.html#a-simple-bilateral-negotiation
 
-import matplotlib.pyplot as plt
 from negmas import (
     make_issue,
     SAOMechanism,
+    TimeBasedConcedingNegotiator,
 )
 from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import LinearFun, IdentityFun, AffineFun
-from microNegotiator import MicroNegotiator
-from timeBasedAgent import TimeBasedAgent
 from titTat import TitForTatAgent
 
 # create negotiation agenda (issues)
@@ -33,16 +31,10 @@ buyer_utility = LUFun(
     outcome_space=session.outcome_space,
 )
 # create and add buyer and seller negotiators
-session.add(
-    TimeBasedAgent(
-        name="seller",
-        reservation_ratio=0.4,
-        concession_curve="reverse_log",
-        reverse_log_k=12.0,
-    ),
-    ufun=seller_utility,
-)
+
+session.add(TitForTatAgent(name="buyer", reservation_ratio=0.4, alpha=1.0), ufun=buyer_utility)
+session.add(TimeBasedConcedingNegotiator(name="seller"), ufun=seller_utility)
+
 # run the negotiation and show the results
 print(session.run())
 session.plot(show_reserved=False)
-plt.show()

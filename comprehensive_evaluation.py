@@ -1,7 +1,7 @@
 """
 comprehensive_evaluation.py
 ===========================
-Comprehensive evaluation of AdaptiveNegotiator vs MicroNegotiator.
+Comprehensive evaluation of AdaptivePrONeg vs MicroNegotiator.
 
 Scenarios
 ---------
@@ -52,7 +52,7 @@ from negmas.preferences.value_fun import AffineFun, IdentityFun, LinearFun
 from rich.console import Console
 from rich.table import Table
 
-from adaptive_agent import AdaptiveNegotiator
+from adaptive_proneg import AdaptivePrONeg
 from microNegotiator import MicroNegotiator
 
 warnings.filterwarnings("ignore")
@@ -63,9 +63,9 @@ console = Console()
 # Agent colour palette
 # ─────────────────────────────────────────────────────────────────────────────
 COMBO_LABELS = {
-    ("AdaptiveNegotiator", "AdaptiveNegotiator"): "Adap vs Adap",
-    ("AdaptiveNegotiator", "MicroNegotiator"):    "Adap vs Micro",
-    ("MicroNegotiator",    "AdaptiveNegotiator"): "Micro vs Adap",
+    ("AdaptivePrONeg", "AdaptivePrONeg"): "Adap vs Adap",
+    ("AdaptivePrONeg", "MicroNegotiator"):    "Adap vs Micro",
+    ("MicroNegotiator",    "AdaptivePrONeg"): "Micro vs Adap",
     ("MicroNegotiator",    "MicroNegotiator"):    "Micro vs Micro",
 }
 COMBO_ORDER = [
@@ -156,7 +156,7 @@ def scenario_multi_issue_high_conflict(n_steps: int = 30):
     Same three-issue structure as balanced, but with significantly higher
     reservation values (seller 0.60, buyer 0.50).
     Fewer outcomes fall inside the ZOPA → tests agents under deadline pressure
-    and exploits AdaptiveNegotiator's PrONeg low-agreement-probability logic.
+    and exploits AdaptivePrONeg's PrONeg low-agreement-probability logic.
     """
     issues = [
         make_issue(name="price",         values=10),
@@ -288,8 +288,8 @@ def _pareto_distance(bu: float, su: float, pareto: list[tuple]) -> float:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _make_agent(agent_type: str, role: str):
-    if agent_type == "AdaptiveNegotiator":
-        return AdaptiveNegotiator(name=role)
+    if agent_type == "AdaptivePrONeg":
+        return AdaptivePrONeg(name=role)
     return MicroNegotiator(name=role)
 
 
