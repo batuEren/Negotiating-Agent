@@ -70,7 +70,6 @@ def plot_trace_utilities(session):
     plt.tight_layout()
 
 
-
 def main():
     session, seller_utility, buyer_utility = create_doc_style_scenario(n_steps=20)
 
@@ -87,7 +86,6 @@ def main():
     # 2) Custom trace-utility plot
     plot_trace_utilities(session)
     plt.show()
-
 
 
 if __name__ == "__main__":
