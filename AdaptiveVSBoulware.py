@@ -34,7 +34,8 @@ from negmas.gb.negotiators.timebased import BoulwareTBNegotiator
 from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import AffineFun, IdentityFun, LinearFun
 
-from adaptive_agent import AdaptiveNegotiator
+#from adaptive_agent import AdaptiveNegotiator
+from adaptive_boulware_mitigate import AdaptiveNegotiator
 
 
 # ─────────────────────────────────────────────────────────────────────────────
