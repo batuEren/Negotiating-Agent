@@ -7,6 +7,7 @@ from negmas import (
 )
 from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import LinearFun, IdentityFun, AffineFun
+from microNegotiator import MicroNegotiator
 from timeBasedAgent import TimeBasedAgent
 from titTat import TitForTatAgent
 
@@ -40,15 +41,6 @@ session.add(
         reverse_log_k=12.0,
     ),
     ufun=seller_utility,
-)
-session.add(
-    TimeBasedAgent(
-        name="buyer",
-        reservation_ratio=0.4,
-        concession_curve="reverse_log",
-        reverse_log_k=12.0,
-    ),
-    ufun=buyer_utility,
 )
 # run the negotiation and show the results
 print(session.run())
