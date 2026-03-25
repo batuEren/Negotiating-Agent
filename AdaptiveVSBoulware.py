@@ -3,6 +3,8 @@ AdaptiveVSBoulware.py
 =====================
 Head-to-head comparison: AdaptiveBoulwareMitigate vs BoulwareTBNegotiator.
 
+Used in Section Adaptive vs Boulware
+
 Scenarios  : single-issue price  +  3-issue (price, quantity, delivery_time)
 Evaluation : distance metrics (lower = better, 0 = at solution point),
              rank summary addressing the three assignment criteria (Sec 2.4):

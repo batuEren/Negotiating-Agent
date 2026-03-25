@@ -165,11 +165,16 @@ def print_extensive_evaluation(scores):
     ]
     opt = agreed.groupby("strategy")[opt_cols].mean().round(4)
     # Convert to distances (lower = better, matches built-in plot direction)
-    dist_cols = {c: c.replace("_optimality", "_dist") for c in opt_cols
-                 if c != "max_welfare_optimality"}
-    dist = (1 - opt[[c for c in opt_cols if c != "max_welfare_optimality"]]).rename(
-        columns=dist_cols
-    ).round(4)
+    dist_cols = {
+        c: c.replace("_optimality", "_dist")
+        for c in opt_cols
+        if c != "max_welfare_optimality"
+    }
+    dist = (
+        (1 - opt[[c for c in opt_cols if c != "max_welfare_optimality"]])
+        .rename(columns=dist_cols)
+        .round(4)
+    )
     if "max_welfare_optimality" in opt_cols:
         dist["max_welfare_dist"] = (1 - opt["max_welfare_optimality"]).round(4)
     dist = dist.sort_values("nash_dist", ascending=True)
@@ -212,17 +217,19 @@ def print_extensive_evaluation(scores):
         "\n[bold yellow]── Overall Rank Summary ─────────────────────────────[/bold yellow]"
     )
     rank_df = pd.DataFrame(index=strategies)
-    rank_df["agree_%"]        = df.groupby("strategy")["agreed"].mean() * 100
-    rank_df["advantage"]      = agreed.groupby("strategy")["advantage"].mean()
+    rank_df["agree_%"] = df.groupby("strategy")["agreed"].mean() * 100
+    rank_df["advantage"] = agreed.groupby("strategy")["advantage"].mean()
     rank_df["social_welfare"] = agreed.groupby("strategy")["welfare"].mean()
     # distances: 0.0 = at solution point, higher = further away (matches built-in plot)
-    rank_df["nash_dist"]   = (
+    rank_df["nash_dist"] = (
         1 - agreed.groupby("strategy")["nash_optimality"].mean()
-        if "nash_optimality" in agreed.columns else np.nan
+        if "nash_optimality" in agreed.columns
+        else np.nan
     )
     rank_df["pareto_dist"] = (
         1 - agreed.groupby("strategy")["pareto_optimality"].mean()
-        if "pareto_optimality" in agreed.columns else np.nan
+        if "pareto_optimality" in agreed.columns
+        else np.nan
     )
     rank_df = rank_df.sort_values("advantage", ascending=False).round(4)
     rank_df["agree_%"] = rank_df["agree_%"].map("{:.1f}%".format)
