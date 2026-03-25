@@ -21,7 +21,7 @@ from negmas.outcomes.outcome_space import make_os
 from negmas.preferences import LinearAdditiveUtilityFunction as U
 from negmas.tournaments.neg import cartesian_tournament
 
-from adaptive_agent import AdaptiveNegotiator
+from adaptive_boulware_mitigate import AdaptiveNegotiator
 from microNegotiator import MicroNegotiator
 from timeBasedAgent import TimeBasedAgent
 

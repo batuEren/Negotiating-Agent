@@ -22,6 +22,78 @@ class AdaptiveNegotiator(SAONegotiator):
         Step 3: scenario integration → outcome ranking
     - Adaptive target with backstop      (slides 40, 45)
     - AC_asp + AC_low acceptance          (slide 64)
+
+    ── Boulware Mitigation ────────────────────────────────────────────────
+    The base adaptive strategy has a structural weakness against Boulware
+    time-based opponents (Faratin et al., 1998, β < 1).  Boulware agents
+    hold near their best offer until the deadline approaches, then concede
+    sharply in the final rounds.  The base agent misinterprets this as
+    generic "opponent not conceding" behaviour and responds by progressively
+    lowering its own target — giving away utility to an opponent who has not
+    moved at all.  Four interlocking mitigations address this:
+
+    1. Sticky Boulware detection  (_is_boulware_opponent / _boulware_flag)
+       ──────────────────────────────────────────────────────────────────
+       Motivation: A Boulware opponent's offers from our utility perspective
+       are near-zero and nearly flat for most of the negotiation.  We detect
+       this by checking whether the spread of the last 8 observed offer
+       utilities is < 0.03.  Crucially, the flag is *sticky*: once set it
+       is only cleared when the full 8-round window shows large spread
+       (> 0.15) AND the latest offer is already above 0.5 for us.  This
+       prevents the flag from dropping at exactly the worst moment — when
+       Boulware makes its single end-game concession, producing a spike that
+       would otherwise break the spread check and remove all guards.
+
+    2. Hardheaded adaptive target  (_beta_adapt)
+       ──────────────────────────────────────────
+       Motivation: The base _beta_adapt reduces the aspiration ratio by 0.08
+       whenever the opponent is not conceding, causing slow but steady
+       capitulation throughout the negotiation.  Against Boulware this is
+       counterproductive: they *will* concede near the deadline, so patience
+       is rewarded.  When Boulware is detected the ratio is instead raised
+       by +0.05 (hold firm), keeping our proposals near the top of our
+       utility range.  When a genuine late-game spike is observed (t > 0.85
+       only), the ratio is lowered by 0.20 — enough to signal willingness
+       to close but anchored to the utility scale, not a low fixed floor.
+       The t > 0.85 gate prevents a "soft" Boulware (β ≈ 0.5) that begins
+       moving at t ≈ 0.7 from triggering a premature target drop.
+
+    3. PrONeg low-agreement concession guard  (_target)
+       ─────────────────────────────────────────────────
+       Motivation: PrONeg's agreement-probability signal drives an urgency
+       penalty (beta -= 0.05 * (1 - agree_prob)) when agree_prob < 0.3.
+       Against Boulware, agree_prob is structurally low throughout — the
+       two bid curves never intersect — so this penalty fires continuously
+       and compounds with the _beta_adapt concession to pull our target
+       down significantly by mid-game.  The guard disables this penalty
+       whenever Boulware is detected, since low agree_prob in that context
+       is expected and correct; the right response is to wait, not to
+       panic-concede.
+
+    4. PrONeg predicted-utility blend guard  (_target)
+       ──────────────────────────────────────────────────
+       Motivation: PrONeg blends the aspiration target toward _predicted_util
+       (up to 30% weight at t = 0.3+).  Against Boulware, the opponent's
+       offer curve is flat near zero, so linear regression predicts continued
+       flatness and _predicted_util ends up very low (~0.1–0.2).  Blending
+       this into the target pulls beta down by up to 0.15 even when our
+       backstop would otherwise hold firm.  The guard disables the blend
+       when Boulware is detected, as the forecast is structurally unreliable
+       for the deferred-concession pattern.
+
+    5. AC_proneg Boulware guard  (respond)
+       ────────────────────────────────────
+       Motivation: AC_proneg accepts an offer when agree_prob < 0.25,
+       offer_u >= reservation + 0.05, and t > 0.7.  For a Boulware opponent
+       all three conditions are almost always satisfied simultaneously — low
+       agreement probability is their steady state and t > 0.7 is the window
+       where Boulware's final drop eventually arrives.  This rule therefore
+       fires the moment t crosses 0.7, accepting whatever Boulware has last
+       offered regardless of how bad it is.  The guard disables AC_proneg
+       entirely for detected Boulware opponents, since the appropriate
+       response at t > 0.7 is to hold firm and await the deadline drop, not
+       to accept the first minimally-acceptable offer.
+    ───────────────────────────────────────────────────────────────────────
     """
 
     E = 3.0  # Boulware exponent for backstop curve
