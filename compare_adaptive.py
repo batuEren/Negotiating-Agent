@@ -4,7 +4,6 @@ import time
 
 import numpy as np
 import plotly.graph_objects as go
-from rich import print
 from scipy import stats
 
 from negmas.gb.negotiators.timebased import (
@@ -84,14 +83,6 @@ def main():
         path=path,
         njobs=-1,  # Serialaize
     )
-
-    print("\n[bold]Scores summary[/bold]")
-    print(results.scores_summary)
-
-    print(f"\nDone in {humanize_time(time.perf_counter() - tic)}")
-
-    print("\n[bold]Raw score columns[/bold]")
-    print(results.scores.columns)
 
     plot_kde(results)
 
