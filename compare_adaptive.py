@@ -23,6 +23,15 @@ from adaptive_agent import AdaptiveNegotiator
 
 
 def get_scenarios(n=10) -> list[Scenario]:
+    """
+    Creates a list of negotiation scenarios.
+
+    Args:
+        n: The number of scenarios to create.
+
+    Returns:
+        A list of scenarios.
+    """
     issues = (
         make_issue([f"{i}" for i in range(10)], "quantity"),
         make_issue([f"{i}" for i in range(5)], "price"),
@@ -43,6 +52,12 @@ def get_scenarios(n=10) -> list[Scenario]:
 
 
 def plot_kde(results):
+    """
+    Plots the kernel density estimate of the advantage for each strategy.
+
+    Args:
+        results: The results of the tournament.
+    """
     fig = go.Figure()
     strategies = results.scores["strategy"].unique()
 
@@ -68,6 +83,9 @@ def plot_kde(results):
 
 
 def main():
+    """
+    Runs a negotiation tournament and plots the results.
+    """
     tic = time.perf_counter()
     path = Path.home() / "negmas" / unique_name("group31_test")
 

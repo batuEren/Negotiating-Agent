@@ -40,6 +40,16 @@ class TitForTatAgent(SAONegotiator):
         opening_utility: float | None = None,
         **kwargs,
     ):
+        """
+        Initializes the negotiator.
+
+        Args:
+            *args:
+            reservation_ratio:
+            alpha:
+            opening_utility:
+            **kwargs:
+        """
         super().__init__(*args, **kwargs)
         self.reservation_ratio = reservation_ratio
         self.alpha = alpha

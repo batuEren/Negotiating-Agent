@@ -66,7 +66,7 @@ class MicroNegotiator(SAONegotiator):
         return 0.0
 
     def _utility_range(self):
-        """Calculate the minimum acceptable utility (reservation value) and maximum utility."""
+        """Calculate the minimum (acceptable) and maximum utility."""
         ufun = self._active_ufun()
         if ufun is None:
             return 0.0, 0.0
@@ -76,7 +76,7 @@ class MicroNegotiator(SAONegotiator):
         return u_min, u_max
 
     def _init_outcomes(self):
-        """Sort all outcomes from best to worst utility (done once)."""
+        """Sort all outcomes from best to worst utility."""
         if self._initialized or self.nmi is None:
             return
         ufun = self._active_ufun()
@@ -102,7 +102,7 @@ class MicroNegotiator(SAONegotiator):
     # ------------------------------------------------------------------
 
     def propose(self, state: SAOState) -> Outcome | None:
-        """Propose the next outcome in the pre-sorted list and advance the step counter."""
+        """Propose the next outcome in the pre-sorted list."""
         self._init_outcomes()
         offer = self._current_offer()
         # Advance so the next call proposes the next-best outcome

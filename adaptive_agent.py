@@ -22,6 +22,9 @@ class AdaptiveNegotiator(SAONegotiator):
     E = 3.0  # Boulware exponent for backstop curve
 
     def __init__(self, *args, **kwargs):
+        """
+        Initializes the negotiator.
+        """
         super().__init__(*args, **kwargs)
 
         self._inv = None
@@ -45,6 +48,9 @@ class AdaptiveNegotiator(SAONegotiator):
 
 
     def on_preferences_changed(self, changes):
+        """
+        Called when the agent's preferences change. It re-initializes the agent's state.
+        """
         super().on_preferences_changed(changes)
 
         changes = [c for c in changes if c.type not in (PreferencesChangeType.Scale,)]
@@ -78,6 +84,10 @@ class AdaptiveNegotiator(SAONegotiator):
         self._build_pool()
 
     def _build_pool(self):
+        """
+        Builds a pool of outcomes to be used for bidding.
+        The pool is a sorted list of unique outcomes with the highest utility values.
+        """
         self._pool = []
         try:
             raw = self._inv.some((self._min_util - 1e-6, self._max_util + 1e-6), False)
@@ -106,6 +116,9 @@ class AdaptiveNegotiator(SAONegotiator):
     # Utility cache
     # ------------------------------------------------------------------
     def _util(self, offer):
+        """
+        Calculates and caches the utility of an offer.
+        """
         if offer is None:
             return float("-inf")
         offer = tuple(offer)
@@ -121,7 +134,10 @@ class AdaptiveNegotiator(SAONegotiator):
     #   opp_util(o)  = sum( w_j * v_j(o_j) )
     # ------------------------------------------------------------------
     def _record_offer(self, offer):
-        """Update frequency counts with a new opponent offer."""
+        """
+        Update frequency counts with a new opponent offer.
+        This is used for opponent modeling.
+        """
         if offer is None:
             return
         offer = tuple(offer)
@@ -134,19 +150,28 @@ class AdaptiveNegotiator(SAONegotiator):
             self._freq[name][val] += 1
 
     def _value_eval(self, issue, value):
-        """v_j(option) = f(option) / k"""
+        """
+        Calculates the opponent's preference for a specific value of an issue.
+        v_j(option) = f(option) / k
+        """
         if issue not in self._freq or self._total_offers == 0:
             return 0.0
         return self._freq[issue][value] / self._total_offers
 
     def _issue_weight(self, issue):
-        """w_j = max{ f(o) | o in I_j } / k"""
+        """
+        Calculates the weight of an issue for the opponent.
+        w_j = max{ f(o) | o in I_j } / k
+        """
         if issue not in self._freq or self._total_offers == 0:
             return 0.0
         return max(self._freq[issue].values()) / self._total_offers
 
     def _opp_util(self, offer):
-        """Estimated opponent utility = sum( w_j * v_j(o_j) )"""
+        """
+        Estimates the opponent's utility for a given offer.
+        Estimated opponent utility = sum( w_j * v_j(o_j) )
+        """
         if offer is None or not self._issue_names or self._total_offers == 0:
             return 0.0
         offer = tuple(offer)
@@ -168,19 +193,29 @@ class AdaptiveNegotiator(SAONegotiator):
     #   beta = max{ beta_0, beta_adapt }
     # ------------------------------------------------------------------
     def _beta_0(self, t):
-        """Backstop: time-based Boulware curve."""
+        """
+        Backstop: time-based Boulware curve.
+        This prevents the agent from being exploited.
+        """
         ratio = max(0.0, 1.0 - t**self.E)
         return self._min_util + ratio * (self._max_util - self._min_util)
 
     def _opponent_is_conceding(self):
-        """True if opponent's recent offers are getting better for us."""
+        """
+        Checks if the opponent is conceding based on the last few offers.
+        Returns True if opponent's recent offers are getting better for us.
+        """
         if len(self._opp_utils) < 3:
             return None  # not enough data
         recent = self._opp_utils[-5:]
         return recent[-1] > recent[0]
 
     def _beta_adapt(self, t):
-        """Adaptive target based on opponent behaviour."""
+        """
+        Adaptive target based on opponent behaviour.
+        If the opponent is conceding, the agent becomes more hardheaded.
+        If the opponent is hardheaded, the agent concedes more.
+        """
         ratio = max(0.0, 1.0 - t**self.E)
 
         conceding = self._opponent_is_conceding()
@@ -194,7 +229,10 @@ class AdaptiveNegotiator(SAONegotiator):
         return self._min_util + ratio * (self._max_util - self._min_util)
 
     def _target(self, state):
-        """beta = max{ beta_0, beta_adapt }  —  never below reservation."""
+        """
+        Calculates the target utility for the current time.
+        beta = max{ beta_0, beta_adapt }  —  never below reservation.
+        """
         t = state.relative_time if state.relative_time is not None else 0.0
         beta = max(self._beta_0(t), self._beta_adapt(t))
         return max(beta, self._reservation)
@@ -206,6 +244,10 @@ class AdaptiveNegotiator(SAONegotiator):
     #   AC_low: accept if  u(received) >= min{ u(w) | already proposed } U { u(w_next) }
     # ------------------------------------------------------------------
     def respond(self, state, source=None):
+        """
+        Called when the agent receives an offer from the opponent.
+        The agent decides whether to accept or reject the offer.
+        """
         offer = state.current_offer
         if offer is None:
             return ResponseType.REJECT_OFFER
@@ -237,6 +279,10 @@ class AdaptiveNegotiator(SAONegotiator):
     # Bidding: from offers above target, pick the one opponent values most
     # ------------------------------------------------------------------
     def _find_bid(self, state):
+        """
+        Finds a bid to propose.
+        From offers above target, it picks the one the opponent values most.
+        """
         target = self._target(state)
 
         if not self._pool:
@@ -260,6 +306,9 @@ class AdaptiveNegotiator(SAONegotiator):
         return best if best is not None else choice(candidates)
 
     def propose(self, state, dest=None):
+        """
+        Called when it's the agent's turn to propose an offer.
+        """
         bid = self._find_bid(state)
         if bid is not None:
             u = self._util(bid)
