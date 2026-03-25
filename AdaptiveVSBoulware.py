@@ -1,7 +1,7 @@
 """
 AdaptiveVSBoulware.py
 =====================
-Head-to-head comparison: AdaptivePrONeg vs BoulwareTBNegotiator.
+Head-to-head comparison: AdaptiveBoulwareMitigate vs BoulwareTBNegotiator.
 
 Scenarios  : single-issue price  +  3-issue (price, quantity, delivery_time)
 Evaluation : distance metrics (lower = better, 0 = at solution point),
@@ -34,7 +34,7 @@ from negmas.gb.negotiators.timebased import BoulwareTBNegotiator
 from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import AffineFun, IdentityFun, LinearFun
 
-from adaptive_proneg import AdaptivePrONeg
+from adaptive_boulware_mitigate import AdaptiveBoulwareMitigate
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,23 +97,23 @@ SCENARIOS = {
 }
 
 COMBOS = [
-    ("AdaptivePrONeg", "AdaptivePrONeg"),
-    ("AdaptivePrONeg", "BoulwareTBNegotiator"),
-    ("BoulwareTBNegotiator", "AdaptivePrONeg"),
+    ("AdaptiveBoulwareMitigate", "AdaptiveBoulwareMitigate"),
+    ("AdaptiveBoulwareMitigate", "BoulwareTBNegotiator"),
+    ("BoulwareTBNegotiator", "AdaptiveBoulwareMitigate"),
     ("BoulwareTBNegotiator", "BoulwareTBNegotiator"),
 ]
 
 COLORS = {
-    "AdaptivePrONeg vs AdaptivePrONeg": "#2196F3",
-    "AdaptivePrONeg vs BoulwareTBNegotiator": "#4CAF50",
-    "BoulwareTBNegotiator vs AdaptivePrONeg": "#FF9800",
+    "AdaptiveBoulwareMitigate vs AdaptiveBoulwareMitigate": "#2196F3",
+    "AdaptiveBoulwareMitigate vs BoulwareTBNegotiator": "#4CAF50",
+    "BoulwareTBNegotiator vs AdaptiveBoulwareMitigate": "#FF9800",
     "BoulwareTBNegotiator vs BoulwareTBNegotiator": "#F44336",
 }
 
 COMBO_SHORT = {
-    "AdaptivePrONeg vs AdaptivePrONeg": "Adap/Adap",
-    "AdaptivePrONeg vs BoulwareTBNegotiator": "Adap/Boul",
-    "BoulwareTBNegotiator vs AdaptivePrONeg": "Boul/Adap",
+    "AdaptiveBoulwareMitigate vs AdaptiveBoulwareMitigate": "Adap/Adap",
+    "AdaptiveBoulwareMitigate vs BoulwareTBNegotiator": "Adap/Boul",
+    "BoulwareTBNegotiator vs AdaptiveBoulwareMitigate": "Boul/Adap",
     "BoulwareTBNegotiator vs BoulwareTBNegotiator": "Boul/Boul",
 }
 
@@ -225,8 +225,8 @@ def _make_agent(type_name: str, role: str):
     This survives NegMAS uniqueness suffixes like (0)/(1).
     """
     label = f"{_short(type_name)}-{role}"
-    if type_name == "AdaptivePrONeg":
-        return AdaptivePrONeg(name=label)
+    if type_name == "AdaptiveBoulwareMitigate":
+        return AdaptiveBoulwareMitigate(name=label)
     return BoulwareTBNegotiator(name=label)
 
 
@@ -834,7 +834,7 @@ def main():
     print(
         "[bold green]╔══════════════════════════════════════════════════╗[/bold green]"
     )
-    print("[bold green]║  AdaptivePrONeg vs BoulwareTBNegotiator      ║[/bold green]")
+    print("[bold green]║  AdaptiveBoulwareMitigate vs BoulwareTBNegotiator      ║[/bold green]")
     print(
         "[bold green]╚══════════════════════════════════════════════════╝[/bold green]"
     )
