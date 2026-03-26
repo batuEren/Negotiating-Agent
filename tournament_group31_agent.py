@@ -21,7 +21,7 @@ from negmas.outcomes.outcome_space import make_os
 from negmas.preferences import LinearAdditiveUtilityFunction as U
 from negmas.tournaments.neg import cartesian_tournament
 
-from adaptive_boulware_mitigate import AdaptiveBoulwareMitigate
+from group31_agent import Group31_Negotiator
 from microNegotiator import MicroNegotiator
 from timeBasedAgent import TimeBasedAgent
 from titTat import TitForTatAgent
@@ -243,7 +243,7 @@ def main():
 
     results = cartesian_tournament(
         competitors=[
-            AdaptiveBoulwareMitigate,
+            Group31_Negotiator,
             BoulwareTBNegotiator,
             ConcederTBNegotiator,
             LinearTBNegotiator,

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"c:/Users/aresk/Desktop/Negotiating-Agent\"/compare_*.py \"c:/Users/aresk/Desktop/Negotiating-Agent\"/tournament_*.py)"
+    ]
+  }
+}

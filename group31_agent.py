@@ -12,7 +12,7 @@ from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import LinearFun, IdentityFun, AffineFun
 
 
-class AdaptiveBoulwareMitigate(SAONegotiator):
+class Group31_Negotiator(SAONegotiator):
     """
     Adaptive SAOP negotiator:
     - Bayesian learning opponent model   (Bayes' rule, Eq. 4-5)
