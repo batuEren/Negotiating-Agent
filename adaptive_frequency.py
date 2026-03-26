@@ -11,9 +11,9 @@ from negmas.preferences import LinearAdditiveUtilityFunction as LUFun
 from negmas.preferences.value_fun import LinearFun, IdentityFun, AffineFun
 
 
-class AdaptiveNegotiator(SAONegotiator):
+class AdaptiveFrequency(SAONegotiator):
     """
-    Adaptive SAOP negotiator:
+    Adaptive SAOP negotiator (v1 — Frequency Analysis):
     - Frequency Analysis opponent model  (slides 71-72)
     - Adaptive target with backstop      (slides 40, 45)
     - AC_asp + AC_low acceptance          (slide 64)
@@ -42,7 +42,6 @@ class AdaptiveNegotiator(SAONegotiator):
 
         self._util_cache = {}
         self._pool = []
-
 
     def on_preferences_changed(self, changes):
         super().on_preferences_changed(changes)
